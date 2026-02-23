@@ -33,6 +33,7 @@ api = MdBrowseAPI()
 
 class ConfirmModal(ModalScreen[bool]):
     """Yes/No confirmation dialog."""
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
     DEFAULT_CSS = """
     ConfirmModal { align: center middle; }
     ConfirmModal > Vertical { width: 50; height: auto; max-height: 14; border: thick $accent; background: $surface; padding: 1 2; }
@@ -59,9 +60,13 @@ class ConfirmModal(ModalScreen[bool]):
     def on_no(self):
         self.dismiss(False)
 
+    def action_cancel(self):
+        self.dismiss(False)
+
 
 class InputModal(ModalScreen[str | None]):
     """Single-field input modal."""
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
     DEFAULT_CSS = """
     InputModal { align: center middle; }
     InputModal > Vertical { width: 60; height: auto; max-height: 16; border: thick $accent; background: $surface; padding: 1 2; }
@@ -95,12 +100,16 @@ class InputModal(ModalScreen[str | None]):
     def on_cancel(self):
         self.dismiss(None)
 
+    def action_cancel(self):
+        self.dismiss(None)
+
     @on(Input.Submitted)
     def on_submit(self):
         self.dismiss(self.query_one("#modal-input", Input).value)
 
 
 class CreateUserModal(ModalScreen[dict | None]):
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
     DEFAULT_CSS = """
     CreateUserModal { align: center middle; }
     CreateUserModal > Vertical { width: 60; height: auto; max-height: 22; border: thick $accent; background: $surface; padding: 1 2; }
@@ -140,8 +149,12 @@ class CreateUserModal(ModalScreen[dict | None]):
     def on_cancel(self):
         self.dismiss(None)
 
+    def action_cancel(self):
+        self.dismiss(None)
+
 
 class EditDocumentModal(ModalScreen[dict | None]):
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
     DEFAULT_CSS = """
     EditDocumentModal { align: center middle; }
     EditDocumentModal > Vertical { width: 80; height: 85%; border: thick $accent; background: $surface; padding: 1 2; }
@@ -210,8 +223,12 @@ class EditDocumentModal(ModalScreen[dict | None]):
     def on_cancel(self):
         self.dismiss(None)
 
+    def action_cancel(self):
+        self.dismiss(None)
+
 
 class CreateFolderModal(ModalScreen[dict | None]):
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
     DEFAULT_CSS = """
     CreateFolderModal { align: center middle; }
     CreateFolderModal > Vertical { width: 60; height: auto; max-height: 18; border: thick $accent; background: $surface; padding: 1 2; }
@@ -253,9 +270,13 @@ class CreateFolderModal(ModalScreen[dict | None]):
     def on_cancel(self):
         self.dismiss(None)
 
+    def action_cancel(self):
+        self.dismiss(None)
+
 
 class UploadLocalModal(ModalScreen[str | None]):
     """Browse local filesystem to select a .md file."""
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
     DEFAULT_CSS = """
     UploadLocalModal { align: center middle; }
     UploadLocalModal > Vertical { width: 80; height: 80%; border: thick $accent; background: $surface; padding: 1 2; }
@@ -298,9 +319,13 @@ class UploadLocalModal(ModalScreen[str | None]):
     def on_cancel(self):
         self.dismiss(None)
 
+    def action_cancel(self):
+        self.dismiss(None)
+
 
 class SSHBrowserModal(ModalScreen[str | None]):
     """Browse remote filesystem via SSH and download a .md file."""
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
     DEFAULT_CSS = """
     SSHBrowserModal { align: center middle; }
     SSHBrowserModal > Vertical { width: 80; height: 80%; border: thick $accent; background: $surface; padding: 1 2; }
@@ -410,9 +435,13 @@ class SSHBrowserModal(ModalScreen[str | None]):
     def on_cancel(self):
         self.dismiss(None)
 
+    def action_cancel(self):
+        self.dismiss(None)
+
 
 class VersionsModal(ModalScreen[int | None]):
     """Show document version history and allow rollback."""
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
     DEFAULT_CSS = """
     VersionsModal { align: center middle; }
     VersionsModal > Vertical { width: 80; height: 70%; border: thick $accent; background: $surface; padding: 1 2; }
@@ -460,6 +489,9 @@ class VersionsModal(ModalScreen[int | None]):
 
     @on(Button.Pressed, "#cancel")
     def on_cancel(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
         self.dismiss(None)
 
 
@@ -548,6 +580,7 @@ class MainScreen(Screen):
         Binding("a", "show_section('audit')", "Audit"),
         Binding("n", "new_document", "Upload"),
         Binding("r", "refresh", "Refresh"),
+        Binding("escape", "go_back", "Back", show=True),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -698,6 +731,15 @@ class MainScreen(Screen):
 
     def action_refresh(self):
         self._load_section(self.current_section)
+
+    def action_go_back(self):
+        """ESC goes back: doc detail → doc list, or non-documents section → documents."""
+        detail = self.query_one("#doc-detail")
+        if "-visible" in detail.classes:
+            self.back_to_docs()
+        elif self.current_section != "documents":
+            self._show_section("documents")
+            self._load_section("documents")
 
     def action_quit(self):
         self.app.exit()
@@ -1147,6 +1189,7 @@ class MainScreen(Screen):
 
 class UserActionModal(ModalScreen[dict | None]):
     """Actions for a selected user."""
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
     DEFAULT_CSS = """
     UserActionModal { align: center middle; }
     UserActionModal > Vertical { width: 50; height: auto; max-height: 24; border: thick $accent; background: $surface; padding: 1 2; }
@@ -1193,6 +1236,9 @@ class UserActionModal(ModalScreen[dict | None]):
 
     @on(Button.Pressed, "#cancel")
     def on_cancel(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
         self.dismiss(None)
 
 
