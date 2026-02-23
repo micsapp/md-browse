@@ -1,0 +1,609 @@
+openapi: 3.0.3
+info:
+  title: MarkdownHub API
+  version: 1.0.0
+  description: |
+    API for uploading, browsing, searching, versioning, and managing Markdown documents.
+    Designed for both human-driven clients and AI agents.
+servers:
+  - url: https://api.example.com
+    description: Production
+  - url: http://localhost:3000
+    description: Local development
+tags:
+  - name: Documents
+  - name: Search
+  - name: Agents
+  - name: Audit
+paths:
+  /api/v1/documents/upload:
+    post:
+      tags: [Documents]
+      summary: Upload markdown documents
+      description: Upload one or more `.md` files and create document records.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                project:
+                  type: string
+                tags:
+                  type: array
+                  items:
+                    type: string
+                visibility:
+                  $ref: '#/components/schemas/Visibility'
+      responses:
+        '201':
+          description: Uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  documents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Document'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+  /api/v1/documents:
+    get:
+      tags: [Documents]
+      summary: List documents
+      security:
+        - bearerAuth: []
+        - agentToken: []
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: page_size
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: sort_by
+          schema:
+            type: string
+            enum: [updated_at, created_at, title]
+            default: updated_at
+        - in: query
+          name: sort_order
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - in: query
+          name: tag
+          schema: { type: string }
+        - in: query
+          name: project
+          schema: { type: string }
+        - in: query
+          name: q
+          schema: { type: string }
+      responses:
+        '200':
+          description: Paginated document list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedDocumentSummary'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+  /api/v1/documents/{id}:
+    get:
+      tags: [Documents]
+      summary: Get document by id
+      security:
+        - bearerAuth: []
+        - agentToken: []
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+        - in: query
+          name: include_raw
+          schema: { type: boolean, default: true }
+        - in: query
+          name: include_rendered
+          schema: { type: boolean, default: true }
+      responses:
+        '200':
+          description: Document details
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Content checksum for cache/sync safety.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+    put:
+      tags: [Documents]
+      summary: Update document
+      security:
+        - bearerAuth: []
+        - agentToken: []
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDocumentRequest'
+      responses:
+        '200':
+          description: Updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '409':
+          $ref: '#/components/responses/ErrorResponse'
+    delete:
+      tags: [Documents]
+      summary: Delete document (soft delete)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+  /api/v1/documents/{id}/versions:
+    get:
+      tags: [Documents]
+      summary: List versions for a document
+      security:
+        - bearerAuth: []
+        - agentToken: []
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      responses:
+        '200':
+          description: Version history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  document_id:
+                    type: string
+                    format: uuid
+                  versions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DocumentVersion'
+  /api/v1/documents/{id}/rollback:
+    post:
+      tags: [Documents]
+      summary: Roll back to an earlier version
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_version]
+              properties:
+                target_version:
+                  type: integer
+                  minimum: 1
+                change_note:
+                  type: string
+      responses:
+        '200':
+          description: Rollback created a new version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+  /api/v1/search:
+    get:
+      tags: [Search]
+      summary: Full-text and metadata search
+      security:
+        - bearerAuth: []
+        - agentToken: []
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string, minLength: 1 }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: page_size
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedDocumentSummary'
+  /api/v1/documents/{id}/chunks:
+    get:
+      tags: [Documents]
+      summary: Retrieve LLM-friendly document chunks
+      security:
+        - bearerAuth: []
+        - agentToken: []
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+        - in: query
+          name: max_tokens
+          schema: { type: integer, minimum: 128, maximum: 4096, default: 1024 }
+      responses:
+        '200':
+          description: Chunked content
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  document_id:
+                    type: string
+                    format: uuid
+                  checksum:
+                    type: string
+                  chunks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DocumentChunk'
+  /api/v1/agents/tokens:
+    post:
+      tags: [Agents]
+      summary: Create scoped API token for agents
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scopes]
+              properties:
+                name:
+                  type: string
+                role:
+                  type: string
+                  enum: [agent]
+                  default: agent
+                scopes:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                    enum:
+                      - documents:read
+                      - documents:write
+                      - versions:read
+                      - search:read
+                      - audit:read
+                expires_at:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: Created token
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/AgentToken'
+                  - type: object
+                    properties:
+                      secret_token:
+                        type: string
+                        description: Returned only once.
+        '403':
+          $ref: '#/components/responses/ErrorResponse'
+  /api/v1/audit-logs:
+    get:
+      tags: [Audit]
+      summary: List audit logs
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: page_size
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: actor_type
+          schema:
+            type: string
+            enum: [user, agent]
+        - in: query
+          name: action
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated audit logs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuditLog'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    agentToken:
+      type: apiKey
+      in: header
+      name: X-Agent-Token
+  parameters:
+    DocumentId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: false
+      schema:
+        type: string
+      description: Required for write operations from agents; prevents duplicate writes.
+  responses:
+    ErrorResponse:
+      description: Structured error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            validation:
+              value:
+                error:
+                  code: validation_error
+                  message: Invalid request payload.
+                  hint: Check required fields and schema constraints.
+                  request_id: req_01JABCXYZ
+  schemas:
+    Visibility:
+      type: string
+      enum: [private, team, public]
+    DocumentSummary:
+      type: object
+      required:
+        - id
+        - title
+        - slug
+        - tags
+        - project
+        - visibility
+        - latest_version
+        - checksum
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        slug:
+          type: string
+        tags:
+          type: array
+          items: { type: string }
+        project:
+          type: string
+        visibility:
+          $ref: '#/components/schemas/Visibility'
+        latest_version:
+          type: integer
+        checksum:
+          type: string
+        token_count_estimate:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Document:
+      allOf:
+        - $ref: '#/components/schemas/DocumentSummary'
+        - type: object
+          properties:
+            content_md:
+              type: string
+            content_html:
+              type: string
+            created_by:
+              type: string
+              format: uuid
+    UpdateDocumentRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        content_md:
+          type: string
+        tags:
+          type: array
+          items: { type: string }
+        project:
+          type: string
+        visibility:
+          $ref: '#/components/schemas/Visibility'
+        change_note:
+          type: string
+    DocumentVersion:
+      type: object
+      required: [id, document_id, version_number, created_at, checksum]
+      properties:
+        id:
+          type: string
+          format: uuid
+        document_id:
+          type: string
+          format: uuid
+        version_number:
+          type: integer
+        content_md:
+          type: string
+        change_note:
+          type: string
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        checksum:
+          type: string
+    DocumentChunk:
+      type: object
+      required: [index, text, token_count_estimate, start_line, end_line]
+      properties:
+        index:
+          type: integer
+        heading_path:
+          type: array
+          items: { type: string }
+        text:
+          type: string
+        token_count_estimate:
+          type: integer
+        start_line:
+          type: integer
+        end_line:
+          type: integer
+    AgentToken:
+      type: object
+      required: [id, name, role, scopes, token_prefix, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        role:
+          type: string
+          enum: [agent]
+        scopes:
+          type: array
+          items: { type: string }
+        token_prefix:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+    AuditLog:
+      type: object
+      required: [id, actor_type, actor_id, action, resource_type, resource_id, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        actor_type:
+          type: string
+          enum: [user, agent]
+        actor_id:
+          type: string
+        action:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+    PaginationMeta:
+      type: object
+      required: [page, page_size, total]
+      properties:
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+    PaginatedDocumentSummary:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentSummary'
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+    PaginatedAuditLog:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLog'
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            hint:
+              type: string
+            request_id:
+              type: string

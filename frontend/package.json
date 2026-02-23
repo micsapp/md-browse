@@ -1,0 +1,23 @@
+{
+  "name": "md-browse-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "devDependencies": {
+    "@vite-pwa/nuxt": "^1.1.1",
+    "nuxt": "^3.9.0",
+    "vue": "^3.4.0",
+    "vue-router": "^4.2.5"
+  },
+  "dependencies": {
+    "dompurify": "^3.0.8",
+    "highlight.js": "^11.9.0",
+    "marked": "^11.1.0"
+  }
+}
