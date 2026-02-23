@@ -155,7 +155,7 @@ for i,d in enumerate(d['data']):
 
 _pick_doc_id() {
     local data="$1"
-    printf "  Document #: "; read -r num
+    printf "  Document #: " >&2; read -r num
     echo "$data" | jf "['data'][${num}-1]['id']" 2>/dev/null
 }
 
