@@ -159,6 +159,18 @@ _pick_doc_id() {
     echo "$data" | jf "['data'][${num}-1]['id']" 2>/dev/null
 }
 
+_show_content() {
+    local doc="$1" mode="${2:-text}"
+    local tmp; tmp=$(mktemp /tmp/md-browse-XXXXXX.md)
+    echo "$doc" | python3 -c "import sys,json; print(json.load(sys.stdin).get('content_md',''))" > "$tmp" 2>/dev/null
+    if [[ "$mode" == "glow" ]] && command -v glow &>/dev/null; then
+        glow -p "$tmp"
+    else
+        ${PAGER:-less} "$tmp"
+    fi
+    rm -f "$tmp"
+}
+
 doc_view() {
     local data="$1"
     local id; id=$(_pick_doc_id "$data") || { error "Invalid"; pause; return; }
@@ -179,13 +191,12 @@ print(f\"  Checksum:   {doc.get('checksum','')[:16]}\")
 print()
 "
     hr
-    printf "  ${W}Show content? [y/N]:${NC} "; read -rn1 show; echo
-    if [[ "$show" == "y" || "$show" == "Y" ]]; then
-        echo "$doc" | python3 -c "
-import sys,json
-doc=json.load(sys.stdin)
-print(doc.get('content_md',''))
-" 2>/dev/null | ${PAGER:-less}
+    printf "  ${C}g${NC}) Rendered (glow)  ${C}t${NC}) Raw text  ${C}Enter${NC}) Skip\n"
+    printf "  ${W}Show content:${NC} "; read -rn1 show; echo
+    if [[ "$show" == "g" || "$show" == "G" ]]; then
+        _show_content "$doc" glow
+    elif [[ "$show" == "t" || "$show" == "T" ]]; then
+        _show_content "$doc" text
     fi
     pause
 }
@@ -293,7 +304,13 @@ for i,d in enumerate(d.get('data',[])):
         if [ -n "$id" ]; then
             header "Document"
             local doc; doc=$(api_get "/api/v1/documents/$id")
-            echo "$doc" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f\"  {d['title']}\n\"); print(d.get('content_md',''))" | ${PAGER:-less}
+            printf "  ${C}g${NC}) Rendered (glow)  ${C}t${NC}) Raw text  ${C}Enter${NC}) Skip\n"
+            printf "  ${W}Show content:${NC} "; read -rn1 show; echo
+            if [[ "$show" == "g" || "$show" == "G" ]]; then
+                _show_content "$doc" glow
+            elif [[ "$show" == "t" || "$show" == "T" ]]; then
+                _show_content "$doc" text
+            fi
         fi
     fi
     pause
