@@ -24,6 +24,11 @@ backend/data/
 .DS_Store
 Thumbs.db
 
+# Python venv
+tui/.venv/
+__pycache__/
+*.pyc
+
 # Logs
 *.log
 npm-debug.log*
