@@ -354,12 +354,17 @@ upload_ssh() {
     printf "\n  ${DIM}Listing ${target}:${rpath}…${NC}\n"
     local listing
     listing=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$target" "ls -la $rpath" 2>&1) || { error "SSH failed: $listing"; pause; return; }
-    echo "$listing" | grep -E '\.md$|\.markdown$' | awk '{print NR") "$NF}'
+    local md_files
+    md_files=$(echo "$listing" | grep -E '\.md$|\.markdown$' || true)
+    if [ -z "$md_files" ]; then
+        warn "No .md files found in ${target}:${rpath}"; pause; return
+    fi
+    echo "$md_files" | awk '{print NR") "$NF}'
 
     printf "\n  File # (or full filename): "; read -r pick
     local filename
     if [[ "$pick" =~ ^[0-9]+$ ]]; then
-        filename=$(echo "$listing" | grep -E '\.md$|\.markdown$' | awk "NR==$pick{print \$NF}")
+        filename=$(echo "$md_files" | awk "NR==$pick{print \$NF}")
     else
         filename="$pick"
     fi
