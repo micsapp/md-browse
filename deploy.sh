@@ -16,6 +16,32 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --hostname) HOSTNAME_OPT="$2"; shift 2 ;;
         --hostname=*) HOSTNAME_OPT="${1#*=}"; shift ;;
+        --help|-h) cat <<'USAGE'
+Usage: deploy.sh [OPTIONS] COMMAND
+
+Commands:
+  deploy      Full deployment (install, build, backend, nginx, health check)
+  install     Install backend & frontend npm dependencies
+  build       Build frontend (nuxt generate)
+  backend     Deploy/restart backend via PM2
+  nginx       Setup nginx config and reload
+  status      Show PM2 process list and URLs
+  logs        Tail PM2 logs
+  restart     Restart backend and reload nginx
+  stop        Stop backend
+
+Options:
+  --hostname DOMAIN   Set nginx server_name (default: _ catch-all)
+  --help, -h          Show this help message
+
+Examples:
+  ./deploy.sh deploy                          # full deploy, catch-all hostname
+  ./deploy.sh --hostname docs.example.com deploy   # deploy with custom hostname
+  ./deploy.sh --hostname docs.example.com nginx    # update nginx only
+  ./deploy.sh status
+  ./deploy.sh logs
+USAGE
+            exit 0 ;;
         *) break ;;
     esac
 done
