@@ -9,6 +9,16 @@ NGINX_SITES_AVAILABLE="/etc/nginx/sites-available/md-browse"
 NGINX_SITES_ENABLED="/etc/nginx/sites-enabled/md-browse"
 BACKEND_PORT="${BACKEND_PORT:-3001}"
 PM2_APP_NAME="md-browse-api"
+HOSTNAME_OPT=""
+
+# Parse flags
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --hostname) HOSTNAME_OPT="$2"; shift 2 ;;
+        --hostname=*) HOSTNAME_OPT="${1#*=}"; shift ;;
+        *) break ;;
+    esac
+done
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -87,6 +97,13 @@ setup_nginx() {
     fi
 
     sudo cp "$NGINX_CONF" "$NGINX_SITES_AVAILABLE"
+
+    # Apply hostname if provided
+    if [ -n "$HOSTNAME_OPT" ]; then
+        sudo sed -i "s/server_name _;/server_name ${HOSTNAME_OPT};/" "$NGINX_SITES_AVAILABLE"
+        sudo sed -i "s/listen 80 default_server;/listen 80;/" "$NGINX_SITES_AVAILABLE"
+        log_info "Nginx server_name set to: $HOSTNAME_OPT"
+    fi
     
     if [ -L "$NGINX_SITES_ENABLED" ] || [ -f "$NGINX_SITES_ENABLED" ]; then
         sudo rm "$NGINX_SITES_ENABLED"
@@ -182,7 +199,11 @@ show_status() {
     pm2 list
     echo ""
     log_info "Backend API: http://localhost:$BACKEND_PORT/api"
-    log_info "Frontend: http://localhost/"
+    if [ -n "$HOSTNAME_OPT" ]; then
+        log_info "Frontend: http://$HOSTNAME_OPT/"
+    else
+        log_info "Frontend: http://localhost/"
+    fi
     echo ""
 }
 
