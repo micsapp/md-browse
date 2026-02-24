@@ -128,6 +128,7 @@ setup_nginx() {
     if [ -n "$HOSTNAME_OPT" ]; then
         sudo sed -i "s/server_name _;/server_name ${HOSTNAME_OPT};/" "$NGINX_SITES_AVAILABLE"
         sudo sed -i "s/listen 80 default_server;/listen 80;/" "$NGINX_SITES_AVAILABLE"
+        sudo sed -i "s/listen 443 ssl default_server;/listen 443 ssl;/" "$NGINX_SITES_AVAILABLE"
         log_info "Nginx server_name set to: $HOSTNAME_OPT"
     fi
     
@@ -153,12 +154,12 @@ setup_nginx() {
 setup_default_admin() {
     log_info "Checking if admin setup is needed..."
 
-    # First check whether users already exist (HTTP 409 means they do)
+    # First check whether users already exist (POST with no password → 400 if empty, 409 if users exist)
     local probe
     probe=$(curl -s -o /dev/null -w "%{http_code}" \
         -X POST "http://localhost:$BACKEND_PORT/api/setup" \
         -H "Content-Type: application/json" \
-        -d '{"username":"__probe__","password":"__probe__"}')
+        -d '{"username":"__probe__"}')
     if [ "$probe" = "409" ]; then
         log_info "Admin setup skipped: users already exist"
         return 0

@@ -27,7 +27,7 @@
         <button class="theme-toggle" @click.stop="theme.toggle()" :title="theme.isDark ? 'Light mode' : 'Dark mode'">
           {{ theme.isDark ? '☀️' : '🌙' }}
         </button>
-        <span class="version-tag">v1.1.0</span>
+        <span class="version-tag">v{{ config.appVersion }} · {{ config.buildTime }}</span>
       </nav>
     </header>
     <main class="main">
@@ -37,6 +37,7 @@
 </template>
 
 <script setup>
+const config = useRuntimeConfig().public
 const searchQuery = ref('')
 const router = useRouter()
 const auth = useAuth()

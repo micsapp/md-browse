@@ -1,3 +1,8 @@
+const pkg = require('./package.json')
+const buildTime = new Date().toISOString().replace('T', ' ').slice(0, 16)
+const buildHash = Date.now().toString(36)
+const appVersion = `${pkg.version}-${buildHash}`
+
 export default defineNuxtConfig({
   devtools: { enabled: true },
   modules: ['@vite-pwa/nuxt'],
@@ -11,6 +16,11 @@ export default defineNuxtConfig({
       ],
       link: [
         { rel: 'apple-touch-icon', href: '/apple-touch-icon.png' }
+      ],
+      script: [
+        {
+          innerHTML: `if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(reg){if(reg.active&&reg.active.scriptURL.includes('/sw.js')){reg.unregister()}})})}`
+        }
       ]
     }
   },
@@ -18,12 +28,15 @@ export default defineNuxtConfig({
     public: {
       // In production this goes through nginx (same-origin, no CORS issues).
       // For local Dev set NUXT_PUBLIC_API_BASE=http://localhost:3001/api
-      apiBase: process.env.NUXT_PUBLIC_API_BASE || '/api'
+      apiBase: process.env.NUXT_PUBLIC_API_BASE || '/api',
+      appVersion,
+      buildTime
     }
   },
   css: ['~/assets/hljs-theme.css'],
   pwa: {
     registerType: 'autoUpdate',
+    filename: `sw-${buildHash}.js`,
     manifest: {
       name: 'MD Browse',
       short_name: 'MD Browse',
