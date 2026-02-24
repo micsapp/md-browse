@@ -335,13 +335,109 @@ upload_menu() {
 }
 
 upload_local() {
-    printf "\n  File path: "; read -re filepath
-    [ -z "$filepath" ] && return
-    filepath="${filepath/#\~/$HOME}"
-    if [ ! -f "$filepath" ]; then
-        error "File not found: $filepath"; pause; return
-    fi
-    _do_upload "$filepath"
+    local selected
+    selected=$(_browse_file "${PWD}")
+    [ -z "$selected" ] && return
+    _do_upload "$selected"
+}
+
+# ── Interactive file browser ─────────────────────────────────────────────────
+# Usage: selected=$(_browse_file /start/dir)
+# Returns the absolute path of the chosen file (empty string if cancelled).
+_browse_file() {
+    local dir="${1:-$HOME}"
+    dir="$(cd "$dir" 2>/dev/null && pwd)" || dir="$HOME"
+
+    while true; do
+        header "Browse Files" >/dev/tty
+        printf "  ${DIM}%s${NC}\n" "$dir" >/dev/tty
+        hr >/dev/tty
+
+        # Collect directories and files into arrays
+        local -a items=()
+        local -a labels=()
+        local idx=1
+
+        # Parent directory entry (unless already at /)
+        if [ "$dir" != "/" ]; then
+            items+=("..")
+            labels+=("${DIM}../  (up)${NC}")
+        fi
+
+        # Directories first
+        while IFS= read -r d; do
+            [ -z "$d" ] && continue
+            items+=("$d")
+            labels+=("${B}${d}/${NC}")
+        done < <(find "$dir" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -printf '%f\n' 2>/dev/null | sort)
+
+        # Then files
+        while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            local size
+            size=$(stat --printf='%s' "$dir/$f" 2>/dev/null || echo "?")
+            # Human-readable size
+            local hsize
+            if [[ "$size" =~ ^[0-9]+$ ]]; then
+                if (( size >= 1048576 )); then
+                    hsize="$(( size / 1048576 ))M"
+                elif (( size >= 1024 )); then
+                    hsize="$(( size / 1024 ))K"
+                else
+                    hsize="${size}B"
+                fi
+            else
+                hsize="?"
+            fi
+            items+=("$f")
+            labels+=("${W}${f}${NC}  ${DIM}(${hsize})${NC}")
+        done < <(find "$dir" -mindepth 1 -maxdepth 1 -type f ! -name '.*' -printf '%f\n' 2>/dev/null | sort)
+
+        if [ ${#items[@]} -eq 0 ]; then
+            printf "\n  ${DIM}(empty directory)${NC}\n" >/dev/tty
+        else
+            local i
+            for i in "${!items[@]}"; do
+                printf "  ${C}%3d${NC}) %b\n" "$((i + 1))" "${labels[$i]}" >/dev/tty
+            done
+        fi
+
+        hr >/dev/tty
+        printf "  ${DIM}Enter # to select, or type a path. ${C}q${NC}${DIM} to cancel.${NC}\n" >/dev/tty
+        printf "  ${W}> ${NC}" >/dev/tty; read -re input
+
+        # Cancel
+        [[ -z "$input" || "$input" == "q" || "$input" == "Q" ]] && echo "" && return
+
+        # Direct path entry
+        if [[ "$input" == /* || "$input" == ~* ]]; then
+            input="${input/#\~/$HOME}"
+            if [ -f "$input" ]; then
+                echo "$input"
+                return
+            elif [ -d "$input" ]; then
+                dir="$(cd "$input" && pwd)"
+                continue
+            else
+                error "Not found: $input" >/dev/tty; sleep 1; continue
+            fi
+        fi
+
+        # Numeric selection
+        if [[ "$input" =~ ^[0-9]+$ ]] && (( input >= 1 && input <= ${#items[@]} )); then
+            local pick="${items[$((input - 1))]}"
+            if [ "$pick" = ".." ]; then
+                dir="$(dirname "$dir")"
+            elif [ -d "$dir/$pick" ]; then
+                dir="$(cd "$dir/$pick" && pwd)"
+            elif [ -f "$dir/$pick" ]; then
+                echo "$dir/$pick"
+                return
+            fi
+        else
+            error "Invalid selection" >/dev/tty; sleep 1
+        fi
+    done
 }
 
 upload_ssh() {
