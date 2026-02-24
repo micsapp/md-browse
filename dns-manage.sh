@@ -26,14 +26,48 @@ load_credentials() {
     fi
 
     if [ -z "${CF_API_TOKEN:-}" ]; then
-        echo -e "${CYAN}Cloudflare API token required.${NC}"
-        echo -e "${DIM}Create one at: https://dash.cloudflare.com/profile/api-tokens${NC}"
-        echo -e "${DIM}Permissions needed: Zone.DNS (Edit)${NC}"
+        local TOKEN_URL="https://dash.cloudflare.com/profile/api-tokens/create"
         echo ""
-        read -rsp "  API Token: " CF_API_TOKEN; echo
+        echo -e "  ${CYAN}${BOLD}Cloudflare API Token Setup${NC}"
+        echo -e "  ─────────────────────────────────────"
+        echo -e "  A one-time API token is needed for DNS management."
+        echo ""
+        echo -e "  ${BOLD}Steps:${NC}"
+        echo -e "  1. Open the URL below in your browser"
+        echo -e "  2. Use template: ${BOLD}Edit zone DNS${NC}"
+        echo -e "  3. Zone Resources → Include → Specific zone → ${BOLD}${DEFAULT_ZONE}${NC}"
+        echo -e "  4. Click ${BOLD}Continue to summary${NC} → ${BOLD}Create Token${NC}"
+        echo -e "  5. Copy the token and paste it here"
+        echo ""
+        echo -e "  ${CYAN}${TOKEN_URL}${NC}"
+        echo ""
+
+        # Try to open browser automatically
+        if command -v xdg-open &>/dev/null; then
+            xdg-open "$TOKEN_URL" 2>/dev/null &
+        elif command -v open &>/dev/null; then
+            open "$TOKEN_URL" 2>/dev/null &
+        fi
+
+        read -rsp "  Paste API Token: " CF_API_TOKEN; echo
         if [ -z "$CF_API_TOKEN" ]; then
             error "API token cannot be empty"; exit 1
         fi
+
+        # Verify token works
+        echo ""
+        info "Verifying token..."
+        local verify
+        verify=$(curl -sf -H "Authorization: Bearer $CF_API_TOKEN" \
+            "${CF_API}/user/tokens/verify" 2>/dev/null) || {
+            error "Token verification failed. Check your token."; exit 1
+        }
+        local status
+        status=$(echo "$verify" | python3 -c "import sys,json; print(json.load(sys.stdin).get('result',{}).get('status',''))" 2>/dev/null)
+        if [ "$status" != "active" ]; then
+            error "Token is not active (status: ${status})"; exit 1
+        fi
+        info "Token verified ✓"
     fi
 
     if [ -z "${CF_ZONE_ID:-}" ]; then
