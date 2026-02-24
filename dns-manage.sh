@@ -253,8 +253,8 @@ tui_add() {
 
     echo ""
     printf "  ${W}Proxy through Cloudflare? [y/N]:${NC} "; read -rn1 do_proxy; echo
-    local proxied="false"
-    [[ "$do_proxy" == "y" || "$do_proxy" == "Y" ]] && proxied="true"
+    local proxied="False"
+    [[ "$do_proxy" == "y" || "$do_proxy" == "Y" ]] && proxied="True"
 
     printf "  ${W}TTL${NC} (1=Auto) [1]: "; read -r ttl_in
     local ttl="${ttl_in:-1}"
