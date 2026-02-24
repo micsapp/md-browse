@@ -108,7 +108,16 @@ pick_zone() {
 
     local resp
     resp=$(cf_api GET "/zones?per_page=50&status=active") || {
-        error "Failed to fetch zones"; pause; exit 1
+        error "Failed to fetch zones"
+        printf "  ${Y}Reset token and try again? [y/N]:${NC} "; read -rn1 yn; echo
+        if [[ "$yn" == "y" || "$yn" == "Y" ]]; then
+            rm -f "$CF_ENV_FILE"
+            CF_API_TOKEN=""
+            setup_token
+            pick_zone
+            return
+        fi
+        exit 1
     }
 
     local zones
@@ -119,7 +128,17 @@ for r in json.load(sys.stdin).get('result', []):
 " 2>/dev/null)
 
     if [ -z "$zones" ]; then
-        error "No zones found. Check token permissions."; pause; exit 1
+        error "No zones found. Check token permissions."
+        echo ""
+        printf "  ${Y}Reset token and try again? [y/N]:${NC} "; read -rn1 yn; echo
+        if [[ "$yn" == "y" || "$yn" == "Y" ]]; then
+            rm -f "$CF_ENV_FILE"
+            CF_API_TOKEN=""
+            setup_token
+            pick_zone
+            return
+        fi
+        exit 1
     fi
 
     local count
