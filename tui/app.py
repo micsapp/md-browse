@@ -523,6 +523,18 @@ class LoginScreen(Screen):
             yield Label("", id="login-error")
 
     def on_mount(self):
+        # Pre-fill URL from saved credentials if available
+        if os.path.exists(os.path.join(os.path.expanduser("~"), ".md-browse", "session.json")):
+            try:
+                import json
+                with open(os.path.join(os.path.expanduser("~"), ".md-browse", "session.json")) as f:
+                    cred = json.load(f)
+                if cred.get("api_url"):
+                    self.query_one("#server-url", Input).value = cred["api_url"]
+                if cred.get("username"):
+                    self.query_one("#username", Input).value = cred["username"]
+            except Exception:
+                pass
         self.query_one("#username", Input).focus()
 
     @on(Button.Pressed, "#login-btn")
@@ -1260,4 +1272,10 @@ class MdBrowseApp(App):
     def on_mount(self):
         self.install_screen(LoginScreen(), name="login")
         self.install_screen(MainScreen(), name="main")
-        self.push_screen("login")
+        # Try restoring saved session
+        saved = api.load_credentials()
+        if saved:
+            self.user_info = saved
+            self.push_screen("main")
+        else:
+            self.push_screen("login")

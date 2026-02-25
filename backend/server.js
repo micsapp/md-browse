@@ -9,6 +9,7 @@ const path = require('path');
 const matter = require('gray-matter');
 const crypto = require('crypto');
 const { marked } = require('marked');
+const archiver = require('archiver');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -23,6 +24,7 @@ const AUDIT_LOGS_FILE = path.join(DATA_DIR, 'audit_logs.json');
 const IDEMPOTENCY_FILE = path.join(DATA_DIR, 'idempotency_keys.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const FOLDERS_FILE = path.join(DATA_DIR, 'folders.json');
+const SHARES_FILE = path.join(DATA_DIR, 'shares.json');
 
 app.use(cors());
 app.use(express.json());
@@ -1163,6 +1165,203 @@ app.put('/api/v1/admin/settings', authMiddleware, adminMiddleware, async (req, r
   }
 });
 
+// ── Download document ────────────────────────────────────────────────────────
+app.get('/api/v1/documents/:id/download', agentTokenMiddleware, requireScope('documents:read'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const metadata = await readJson(META_FILE, {});
+    const meta = metadata[id];
+    if (!meta || meta.deleted_at) {
+      return sendError(res, 404, 'not_found', 'Document not found', null, req.requestId);
+    }
+    const rawContent = await getDocContent(id, meta);
+    const filename = `${sanitizeFilename(meta.title || id)}.md`;
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(rawContent);
+  } catch (err) {
+    sendError(res, 500, 'internal_error', err.message, null, req.requestId);
+  }
+});
+
+// ── Batch operations ─────────────────────────────────────────────────────────
+app.post('/api/v1/documents/batch/delete', authMiddleware, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return sendError(res, 400, 'validation_error', 'ids array is required', null, req.requestId);
+    }
+    const metadata = await readJson(META_FILE, {});
+    const now = new Date().toISOString();
+    const deleted = [];
+    for (const id of ids) {
+      if (metadata[id] && !metadata[id].deleted_at) {
+        metadata[id].deleted_at = now;
+        deleted.push(id);
+      }
+    }
+    await writeJson(META_FILE, metadata);
+    for (const id of deleted) {
+      await appendAuditLog('user', req.actorId, 'document.delete', 'document', id, { batch: true });
+    }
+    res.json({ deleted });
+  } catch (err) {
+    sendError(res, 500, 'internal_error', err.message, null, req.requestId);
+  }
+});
+
+app.post('/api/v1/documents/batch/move', authMiddleware, async (req, res) => {
+  try {
+    const { ids, folder_id } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return sendError(res, 400, 'validation_error', 'ids array is required', null, req.requestId);
+    }
+    if (folder_id !== null && folder_id !== undefined) {
+      const folders = await readJson(FOLDERS_FILE, {});
+      if (!folders[folder_id]) {
+        return sendError(res, 400, 'validation_error', 'Folder not found', null, req.requestId);
+      }
+    }
+    const metadata = await readJson(META_FILE, {});
+    const allFolders = await readJson(FOLDERS_FILE, {});
+    const moved = [];
+    for (const id of ids) {
+      const meta = metadata[id];
+      if (!meta || meta.deleted_at) continue;
+      const currentFilePath = meta.file_path || `${id}.md`;
+      const filename = path.basename(currentFilePath);
+      const newFolderId = folder_id !== undefined ? folder_id : null;
+      const newFolderDirName = newFolderId ? (allFolders[newFolderId]?.dir_name || newFolderId) : null;
+      const newFilePath = newFolderDirName ? `${newFolderDirName}/${filename}` : filename;
+      if (newFolderDirName) await fs.mkdir(path.join(DOCS_DIR, newFolderDirName), { recursive: true });
+      const oldFullPath = path.join(DOCS_DIR, currentFilePath);
+      const newFullPath = path.join(DOCS_DIR, newFilePath);
+      if (oldFullPath !== newFullPath) await fs.rename(oldFullPath, newFullPath);
+      metadata[id].folder_id = newFolderId;
+      metadata[id].file_path = newFilePath;
+      metadata[id].updated_at = new Date().toISOString();
+      moved.push(id);
+    }
+    await writeJson(META_FILE, metadata);
+    res.json({ moved });
+  } catch (err) {
+    sendError(res, 500, 'internal_error', err.message, null, req.requestId);
+  }
+});
+
+app.post('/api/v1/documents/batch/download', agentTokenMiddleware, requireScope('documents:read'), async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return sendError(res, 400, 'validation_error', 'ids array is required', null, req.requestId);
+    }
+    const metadata = await readJson(META_FILE, {});
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="documents.zip"');
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.pipe(res);
+    for (const id of ids) {
+      const meta = metadata[id];
+      if (!meta || meta.deleted_at) continue;
+      const rawContent = await getDocContent(id, meta);
+      const filename = `${sanitizeFilename(meta.title || id)}.md`;
+      archive.append(rawContent, { name: filename });
+    }
+    await archive.finalize();
+  } catch (err) {
+    if (!res.headersSent) sendError(res, 500, 'internal_error', err.message, null, req.requestId);
+  }
+});
+
+// ── Share document ───────────────────────────────────────────────────────────
+app.post('/api/v1/documents/:id/share', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { access_code } = req.body;
+    const metadata = await readJson(META_FILE, {});
+    if (!metadata[id] || metadata[id].deleted_at) {
+      return sendError(res, 404, 'not_found', 'Document not found', null, req.requestId);
+    }
+    const shares = await readJson(SHARES_FILE, {});
+    const shareId = uuidv4();
+    const token = crypto.randomBytes(24).toString('base64url');
+    shares[shareId] = {
+      id: shareId,
+      document_id: id,
+      token,
+      access_code: access_code || null,
+      created_by: req.actorId,
+      created_at: new Date().toISOString()
+    };
+    await writeJson(SHARES_FILE, shares);
+    await appendAuditLog('user', req.actorId, 'share.create', 'share', shareId, { document_id: id, has_code: !!access_code });
+    res.status(201).json({ id: shareId, token, has_access_code: !!access_code });
+  } catch (err) {
+    sendError(res, 500, 'internal_error', err.message, null, req.requestId);
+  }
+});
+
+app.get('/api/v1/documents/:id/shares', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const shares = await readJson(SHARES_FILE, {});
+    const docShares = Object.values(shares)
+      .filter(s => s.document_id === id)
+      .map(s => ({ id: s.id, token: s.token, has_access_code: !!s.access_code, created_by: s.created_by, created_at: s.created_at }));
+    res.json(docShares);
+  } catch (err) {
+    sendError(res, 500, 'internal_error', err.message, null, req.requestId);
+  }
+});
+
+app.delete('/api/v1/shares/:shareId', authMiddleware, async (req, res) => {
+  try {
+    const { shareId } = req.params;
+    const shares = await readJson(SHARES_FILE, {});
+    if (!shares[shareId]) {
+      return sendError(res, 404, 'not_found', 'Share not found', null, req.requestId);
+    }
+    delete shares[shareId];
+    await writeJson(SHARES_FILE, shares);
+    await appendAuditLog('user', req.actorId, 'share.delete', 'share', shareId, {});
+    res.status(204).send();
+  } catch (err) {
+    sendError(res, 500, 'internal_error', err.message, null, req.requestId);
+  }
+});
+
+// Public share access (no auth required)
+app.get('/api/share/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { code } = req.query;
+    const shares = await readJson(SHARES_FILE, {});
+    const share = Object.values(shares).find(s => s.token === token);
+    if (!share) {
+      return sendError(res, 404, 'not_found', 'Share link not found or expired', null, req.requestId);
+    }
+    if (share.access_code && share.access_code !== code) {
+      return sendError(res, 403, 'forbidden', 'Access code required', 'Provide the correct access code via ?code= parameter', req.requestId);
+    }
+    const metadata = await readJson(META_FILE, {});
+    const meta = metadata[share.document_id];
+    if (!meta || meta.deleted_at) {
+      return sendError(res, 404, 'not_found', 'Document no longer exists', null, req.requestId);
+    }
+    const rawContent = await getDocContent(share.document_id, meta);
+    const { content: body } = matter(rawContent);
+    const doc = {
+      ...buildDocSummary(share.document_id, meta),
+      content_md: rawContent,
+      content_html: renderMarkdown(body),
+      shared: true
+    };
+    res.json(doc);
+  } catch (err) {
+    sendError(res, 500, 'internal_error', err.message, null, req.requestId);
+  }
+});
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
   await fs.mkdir(DATA_DIR, { recursive: true });
@@ -1176,7 +1375,8 @@ async function init() {
     [AUDIT_LOGS_FILE, []],
     [IDEMPOTENCY_FILE, {}],
     [SETTINGS_FILE, { registration_enabled: true }],
-    [FOLDERS_FILE, {}]
+    [FOLDERS_FILE, {}],
+    [SHARES_FILE, {}]
   ]) {
     try { await fs.access(file); } catch { await writeJson(file, def); }
   }

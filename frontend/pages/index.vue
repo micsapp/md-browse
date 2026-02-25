@@ -63,16 +63,27 @@
     <div class="main-header">
       <h1>{{ selectedFolderLabel }}</h1>
       <div class="view-controls">
+        <button v-if="auth.user" :class="['view-btn', { active: selectMode }]" @click="toggleSelectMode" title="Select mode">☑</button>
         <button :class="['view-btn', { active: viewMode === 'card' }]" @click="viewMode = 'card'" title="Card view">⊞</button>
         <button :class="['view-btn', { active: viewMode === 'compact' }]" @click="viewMode = 'compact'" title="Compact view">☰</button>
         <button :class="['view-btn', { active: viewMode === 'table' }]" @click="viewMode = 'table'" title="Table view">⊟</button>
       </div>
     </div>
 
+    <!-- Batch action bar -->
+    <div v-if="selectedIds.size > 0" class="batch-bar">
+      <span class="batch-count">{{ selectedIds.size }} selected</span>
+      <button @click="batchDownloadSelected" class="batch-btn batch-download">⬇ Download</button>
+      <button @click="batchMoveSelected" class="batch-btn batch-move">📁 Move</button>
+      <button @click="batchDeleteSelected" class="batch-btn batch-delete">🗑 Delete</button>
+      <button @click="clearSelection" class="batch-btn batch-cancel">✕ Clear</button>
+    </div>
+
     <!-- Card view -->
     <div v-if="viewMode === 'card'" class="documents documents-card">
-      <div v-for="doc in documents" :key="doc.id" class="doc-card">
+      <div v-for="doc in documents" :key="doc.id" class="doc-card" :class="{ selected: selectedIds.has(doc.id) }">
         <div class="doc-card-top">
+          <input v-if="selectMode" type="checkbox" :checked="selectedIds.has(doc.id)" @change="toggleSelect(doc.id)" class="doc-check" @click.stop />
           <h2><NuxtLink :to="`/documents/${doc.id}`">{{ doc.title }}</NuxtLink></h2>
           <div class="doc-actions" @click.stop>
             <button @click="openMoveModal(doc.id)" class="btn-sm">Move</button>
@@ -90,7 +101,8 @@
 
     <!-- Compact list view -->
     <div v-else-if="viewMode === 'compact'" class="documents documents-compact">
-      <div v-for="doc in documents" :key="doc.id" class="compact-row">
+      <div v-for="doc in documents" :key="doc.id" class="compact-row" :class="{ selected: selectedIds.has(doc.id) }">
+        <input v-if="selectMode" type="checkbox" :checked="selectedIds.has(doc.id)" @change="toggleSelect(doc.id)" class="doc-check" @click.stop />
         <NuxtLink :to="`/documents/${doc.id}`" class="compact-title">{{ doc.title }}</NuxtLink>
         <span class="compact-date">{{ formatDate(doc.updated_at) }}</span>
         <div class="doc-actions compact-actions" @click.stop>
@@ -106,6 +118,7 @@
       <table class="doc-table">
         <thead>
           <tr>
+            <th v-if="selectMode" class="col-check"><input type="checkbox" @change="toggleSelectAll" :checked="allSelected" /></th>
             <th>Title</th>
             <th class="col-hide-sm">Category</th>
             <th class="col-hide-sm">Tags</th>
@@ -115,7 +128,8 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="doc in documents" :key="doc.id" class="doc-row">
+          <tr v-for="doc in documents" :key="doc.id" class="doc-row" :class="{ selected: selectedIds.has(doc.id) }">
+            <td v-if="selectMode" class="col-check"><input type="checkbox" :checked="selectedIds.has(doc.id)" @change="toggleSelect(doc.id)" @click.stop /></td>
             <td class="td-title"><NuxtLink :to="`/documents/${doc.id}`">{{ doc.title }}</NuxtLink></td>
             <td class="col-hide-sm"><span v-if="doc.category" class="category">{{ doc.category }}</span></td>
             <td class="td-tags col-hide-sm"><span v-for="tag in doc.tags" :key="tag" class="tag">{{ tag }}</span></td>
@@ -128,21 +142,21 @@
               </div>
             </td>
           </tr>
-          <tr v-if="!documents?.length"><td colspan="6" class="empty">No documents. <NuxtLink to="/upload">Upload one</NuxtLink></td></tr>
+          <tr v-if="!documents?.length"><td :colspan="selectMode ? 7 : 6" class="empty">No documents. <NuxtLink to="/upload">Upload one</NuxtLink></td></tr>
         </tbody>
       </table>
     </div>
 
-    <!-- ── Move Modal ──────────────────────────────────────────────────────── -->
-    <div v-if="moveDocId" class="modal-overlay" @click.self="moveDocId = null">
+    <!-- ── Move Modal (single or batch) ──────────────────────────────────── -->
+    <div v-if="moveDocId || batchMoving" class="modal-overlay" @click.self="moveDocId = null; batchMoving = false">
       <div class="modal">
-        <h3>Move to folder</h3>
+        <h3>{{ batchMoving ? `Move ${selectedIds.size} documents` : 'Move to folder' }}</h3>
         <div class="move-list">
-          <div @click="moveDoc(moveDocId, null)" class="move-item" :class="{ active: !movingDocFolderId }">📁 Root (no folder)</div>
-          <div v-for="f in flatFolders" :key="f.id" @click="moveDoc(moveDocId, f.id)" class="move-item" :class="{ active: movingDocFolderId === f.id }" :style="{ paddingLeft: (0.75 + f.depth) + 'rem' }">📁 {{ f.name }}</div>
+          <div @click="batchMoving ? doBatchMove(null) : moveDoc(moveDocId, null)" class="move-item" :class="{ active: !movingDocFolderId }">📁 Root (no folder)</div>
+          <div v-for="f in flatFolders" :key="f.id" @click="batchMoving ? doBatchMove(f.id) : moveDoc(moveDocId, f.id)" class="move-item" :class="{ active: movingDocFolderId === f.id }" :style="{ paddingLeft: (0.75 + f.depth) + 'rem' }">📁 {{ f.name }}</div>
         </div>
         <div class="modal-btns">
-          <button @click="moveDocId = null" class="btn-secondary">Cancel</button>
+          <button @click="moveDocId = null; batchMoving = false" class="btn-secondary">Cancel</button>
         </div>
       </div>
     </div>
@@ -163,9 +177,43 @@
 
 <script setup>
 const api = useApi()
+const auth = useAuth()
 
 // undefined = all docs, null = root/unfiled, string = folder id
 const selectedFolderId = ref(undefined)
+
+// Multi-select
+const selectMode = ref(false)
+const selectedIds = reactive(new Set())
+const batchMoving = ref(false)
+
+function toggleSelectMode() { selectMode.value = !selectMode.value; if (!selectMode.value) selectedIds.clear() }
+function toggleSelect(id) { selectedIds.has(id) ? selectedIds.delete(id) : selectedIds.add(id) }
+function clearSelection() { selectedIds.clear(); selectMode.value = false }
+const allSelected = computed(() => documents.value?.length > 0 && documents.value.every(d => selectedIds.has(d.id)))
+function toggleSelectAll() {
+  if (allSelected.value) { documents.value.forEach(d => selectedIds.delete(d.id)) }
+  else { documents.value.forEach(d => selectedIds.add(d.id)) }
+}
+
+async function batchDeleteSelected() {
+  if (!confirm(`Delete ${selectedIds.size} documents?`)) return
+  try { await api.batchDelete([...selectedIds]); selectedIds.clear(); await refreshDocs(); await refreshAllDocs() }
+  catch (e) { console.error('Batch delete failed', e) }
+}
+async function batchMoveSelected() { batchMoving.value = true }
+async function doBatchMove(folderId) {
+  batchMoving.value = false
+  try { await api.batchMove([...selectedIds], folderId); selectedIds.clear(); await refreshDocs(); await refreshAllDocs() }
+  catch (e) { console.error('Batch move failed', e) }
+}
+async function batchDownloadSelected() {
+  if (selectedIds.size === 1) {
+    await api.downloadDocument([...selectedIds][0])
+  } else {
+    await api.batchDownload([...selectedIds])
+  }
+}
 
 // Folders
 const { data: allFolders, refresh: refreshFolders } = await useAsyncData('folders', async () => {
@@ -480,4 +528,21 @@ watch(viewMode, v => { if (import.meta.client) localStorage.setItem('viewMode', 
 @media (min-width: 769px) {
   .folder-panel { width: 320px; }
 }
+
+/* ── Multi-select ──────────────────────────────────────────────────────── */
+.doc-check { width: 16px; height: 16px; cursor: pointer; flex-shrink: 0; accent-color: var(--accent); }
+.col-check { width: 30px; text-align: center; }
+.doc-card.selected, .compact-row.selected, .doc-row.selected td { background: var(--active-bg); }
+.batch-bar {
+  display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem;
+  background: var(--surface); border: 1px solid var(--accent); border-radius: 8px;
+  margin-bottom: 0.75rem; box-shadow: 0 2px 8px var(--shadow);
+  position: sticky; top: 3.5rem; z-index: 50; flex-wrap: wrap;
+}
+.batch-count { font-weight: 600; font-size: 0.88rem; color: var(--text); margin-right: auto; }
+.batch-btn { padding: 0.3rem 0.7rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.82rem; color: white; }
+.batch-download { background: #27ae60; }
+.batch-move { background: #3498db; }
+.batch-delete { background: #e74c3c; }
+.batch-cancel { background: var(--surface2); color: var(--text); border: 1px solid var(--border2); }
 </style>

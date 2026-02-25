@@ -1,9 +1,13 @@
 """HTTP API client for md-browse backend."""
 import requests
 import os
+import json
 import tempfile
 import subprocess
 import shlex
+
+CRED_DIR = os.path.join(os.path.expanduser("~"), ".md-browse")
+CRED_FILE = os.path.join(CRED_DIR, "session.json")
 
 
 class APIError(Exception):
@@ -41,10 +45,34 @@ class MdBrowseAPI:
     def login(self, username, password):
         data = self._request("POST", "/api/auth/login", json={"username": username, "password": password})
         self.token = data["token"]
+        self.save_credentials(data)
         return data
 
     def me(self):
         return self._request("GET", "/api/auth/me")
+
+    def save_credentials(self, data):
+        os.makedirs(CRED_DIR, mode=0o700, exist_ok=True)
+        cred = {"api_url": self.base_url, "token": self.token,
+                "username": data.get("username"), "role": data.get("role")}
+        with open(CRED_FILE, "w") as f:
+            json.dump(cred, f)
+        os.chmod(CRED_FILE, 0o600)
+
+    def load_credentials(self):
+        """Try to restore a saved session. Returns user data dict or None."""
+        if not os.path.exists(CRED_FILE):
+            return None
+        try:
+            with open(CRED_FILE) as f:
+                cred = json.load(f)
+            self.base_url = cred.get("api_url", self.base_url)
+            self.token = cred["token"]
+            me = self.me()
+            return {"username": me["username"], "role": me.get("role"), "token": self.token}
+        except Exception:
+            self.token = None
+            return None
 
     # --- Documents ---
     def list_documents(self, page=1, page_size=50, q=None, tag=None, folder_id=None, sort_by="updated_at", sort_order="desc"):

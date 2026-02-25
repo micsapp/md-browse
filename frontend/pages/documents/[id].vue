@@ -19,6 +19,8 @@
         <div v-if="auth.user" class="actions">
           <button @click="editing = !editing">{{ editing ? 'Cancel' : 'Edit' }}</button>
           <button @click="showVersions = !showVersions">{{ showVersions ? 'Hide History' : 'Version History' }}</button>
+          <button @click="downloadDoc" class="download">Download</button>
+          <button @click="showSharePanel = !showSharePanel" class="share">Share</button>
           <button @click="deleteDoc" class="delete">Delete</button>
         </div>
       </header>
@@ -36,12 +38,44 @@
         <p v-else class="no-versions">No version history yet.</p>
       </div>
 
+      <div v-if="showSharePanel" class="share-panel">
+        <h3>Share Document</h3>
+        <div class="share-create">
+          <label class="share-label">
+            <input type="checkbox" v-model="shareWithCode" /> Require access code
+          </label>
+          <input v-if="shareWithCode" v-model="shareCode" placeholder="Enter access code" class="share-code-input" />
+          <button @click="createNewShare" class="btn-create-share">Create Share Link</button>
+        </div>
+        <div v-if="newShareUrl" class="share-result">
+          <p>Share URL:</p>
+          <div class="share-url-row">
+            <input :value="newShareUrl" readonly class="share-url-input" @click="$event.target.select()" />
+            <button @click="copyShareUrl" class="btn-copy">{{ copied ? '✓' : 'Copy' }}</button>
+          </div>
+          <p v-if="newShareHasCode" class="share-note">🔒 Access code required to view</p>
+        </div>
+        <div v-if="shares.length" class="share-list">
+          <h4>Active share links</h4>
+          <div v-for="s in shares" :key="s.id" class="share-item">
+            <span class="share-token">{{ s.has_access_code ? '🔒' : '🔗' }} /share/{{ s.token.slice(0, 8) }}…</span>
+            <span class="share-date">{{ formatDate(s.created_at) }}</span>
+            <button @click="revokeShare(s.id)" class="btn-sm btn-danger">Revoke</button>
+          </div>
+        </div>
+      </div>
+
       <div v-if="editing" class="editor">
         <input v-model="editForm.title" placeholder="Title" />
         <input v-model="editForm.description" placeholder="Description" />
         <input v-model="editForm.category" placeholder="Category" />
         <input v-model="editForm.tagsInput" placeholder="Tags (comma separated)" />
-        <textarea v-model="editForm.content_md" rows="20" />
+        <div class="editor-mode-toggle">
+          <button :class="{ active: editorMode === 'source' }" @click="editorMode = 'source'">Source</button>
+          <button :class="{ active: editorMode === 'preview' }" @click="editorMode = 'preview'">Preview</button>
+        </div>
+        <textarea v-if="editorMode === 'source'" v-model="editForm.content_md" rows="20" class="source-textarea" />
+        <div v-else class="editor-preview content" v-html="editPreviewHtml" />
         <div class="editor-actions">
           <input v-model="editForm.change_note" placeholder="Change note (optional)" />
           <button @click="saveEdit">Save</button>
@@ -69,8 +103,16 @@ const { data: doc, pending, error, refresh } = await useAsyncData(`doc-${route.p
 
 const editing = ref(false)
 const showVersions = ref(false)
+const showSharePanel = ref(false)
+const editorMode = ref('source')
 const editForm = ref({ title: '', description: '', category: '', tagsInput: '', content_md: '', change_note: '' })
 const versions = ref([])
+const shares = ref([])
+const shareWithCode = ref(false)
+const shareCode = ref('')
+const newShareUrl = ref('')
+const newShareHasCode = ref(false)
+const copied = ref(false)
 
 watch(editing, (val) => {
   if (val && doc.value) {
@@ -110,6 +152,11 @@ const renderedContent = computed(() => {
   return DOMPurify.sanitize(marked(md))
 })
 
+const editPreviewHtml = computed(() => {
+  if (!editForm.value.content_md) return ''
+  return DOMPurify.sanitize(marked(editForm.value.content_md))
+})
+
 function formatDate(date) {
   return date ? new Date(date).toLocaleDateString() : ''
 }
@@ -140,6 +187,38 @@ async function deleteDoc() {
     router.push('/')
   }
 }
+
+async function downloadDoc() {
+  await api.downloadDocument(route.params.id)
+}
+
+async function createNewShare() {
+  const res = await api.createShare(route.params.id, shareWithCode.value ? shareCode.value : null)
+  const base = window.location.origin
+  newShareUrl.value = `${base}/share/${res.token}`
+  newShareHasCode.value = res.has_access_code
+  shareCode.value = ''
+  shareWithCode.value = false
+  await loadShares()
+}
+
+async function loadShares() {
+  shares.value = await api.getShares(route.params.id)
+}
+
+async function revokeShare(shareId) {
+  if (!confirm('Revoke this share link?')) return
+  await api.deleteShare(shareId)
+  await loadShares()
+}
+
+async function copyShareUrl() {
+  await navigator.clipboard.writeText(newShareUrl.value)
+  copied.value = true
+  setTimeout(() => { copied.value = false }, 2000)
+}
+
+watch(showSharePanel, (val) => { if (val) loadShares() })
 </script>
 
 <style scoped>
@@ -156,6 +235,8 @@ async function deleteDoc() {
 .actions button { padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer; }
 .actions button:first-child { background: #3498db; color: white; }
 .actions button:nth-child(2) { background: #8e44ad; color: white; }
+.actions .download { background: #27ae60; color: white; }
+.actions .share { background: #f39c12; color: white; }
 .actions .delete { background: #e74c3c; color: white; }
 .versions-panel { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; }
 .versions-panel h3 { margin-bottom: 0.75rem; }
@@ -171,6 +252,28 @@ async function deleteDoc() {
 .editor-actions { display: flex; gap: 0.5rem; }
 .editor-actions input { flex: 1; }
 .editor-actions button { background: #27ae60; color: white; padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer; }
+.editor-mode-toggle { display: flex; gap: 0; border: 1px solid var(--border2, #ddd); border-radius: 4px; overflow: hidden; width: fit-content; }
+.editor-mode-toggle button { padding: 0.35rem 0.8rem; border: none; background: var(--surface2, #f8f9fa); cursor: pointer; font-size: 0.85rem; color: var(--text, #333); }
+.editor-mode-toggle button.active { background: var(--accent, #3498db); color: white; }
+.source-textarea { font-family: 'Fira Code', 'Consolas', monospace; font-size: 0.9rem; line-height: 1.5; tab-size: 2; }
+.editor-preview { min-height: 300px; border: 1px solid var(--border2, #ddd); border-radius: 4px; padding: 1rem; background: var(--surface, #fff); overflow-y: auto; max-height: 500px; }
+.share-panel { background: var(--surface2, #f8f9fa); border: 1px solid var(--border, #dee2e6); border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; }
+.share-panel h3 { margin-bottom: 0.75rem; }
+.share-panel h4 { margin: 0.75rem 0 0.5rem; font-size: 0.9rem; }
+.share-create { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
+.share-label { display: flex; align-items: center; gap: 0.3rem; font-size: 0.9rem; cursor: pointer; }
+.share-code-input { padding: 0.35rem 0.5rem; border: 1px solid var(--border2, #ddd); border-radius: 4px; font-size: 0.9rem; width: 160px; }
+.btn-create-share { padding: 0.35rem 0.8rem; background: var(--accent, #3498db); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
+.share-result { background: var(--surface, #fff); border: 1px solid var(--border, #dee2e6); border-radius: 6px; padding: 0.75rem; margin-bottom: 0.75rem; }
+.share-result p { margin: 0 0 0.4rem; font-size: 0.85rem; }
+.share-url-row { display: flex; gap: 0.4rem; }
+.share-url-input { flex: 1; padding: 0.35rem 0.5rem; border: 1px solid var(--border2, #ddd); border-radius: 4px; font-size: 0.85rem; font-family: monospace; background: var(--surface2, #f8f9fa); }
+.btn-copy { padding: 0.35rem 0.6rem; background: var(--accent, #3498db); color: white; border: none; border-radius: 4px; cursor: pointer; min-width: 50px; }
+.share-note { color: var(--text3, #999); font-size: 0.82rem; margin-top: 0.3rem; }
+.share-list { border-top: 1px solid var(--border, #dee2e6); padding-top: 0.5rem; }
+.share-item { display: flex; gap: 0.75rem; align-items: center; padding: 0.4rem 0; font-size: 0.85rem; }
+.share-token { flex: 1; font-family: monospace; color: var(--text2, #555); }
+.share-date { color: var(--text3, #999); font-size: 0.8rem; }
 .content { line-height: 1.8; }
 .content :deep(h1), .content :deep(h2), .content :deep(h3) { margin: 1.5rem 0 0.5rem; }
 .content :deep(p) { margin-bottom: 1rem; }

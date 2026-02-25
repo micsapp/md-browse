@@ -8,6 +8,8 @@ API_URL="${MD_BROWSE_URL:-http://localhost:3001}"
 TOKEN=""
 USERNAME=""
 ROLE=""
+CRED_DIR="$HOME/.md-browse"
+CRED_FILE="$CRED_DIR/session"
 
 # ── Colors & helpers ─────────────────────────────────────────────────────────
 R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'; B='\033[0;34m'; C='\033[0;36m'
@@ -61,6 +63,32 @@ $1
 " 2>/dev/null; }
 
 # ═════════════════════════════════════════════════════════════════════════════
+#  CREDENTIAL PERSISTENCE
+# ═════════════════════════════════════════════════════════════════════════════
+save_credentials() {
+    mkdir -p "$CRED_DIR"
+    chmod 700 "$CRED_DIR"
+    cat > "$CRED_FILE" <<EOF
+API_URL=$API_URL
+TOKEN=$TOKEN
+USERNAME=$USERNAME
+ROLE=$ROLE
+EOF
+    chmod 600 "$CRED_FILE"
+}
+
+load_credentials() {
+    [ -f "$CRED_FILE" ] || return 1
+    source "$CRED_FILE"
+    # Validate the saved token
+    local me
+    me=$(curl -sf -H "Authorization: Bearer $TOKEN" "${API_URL}/api/auth/me" 2>/dev/null) || return 1
+    USERNAME=$(echo "$me" | jf "['username']") || return 1
+    ROLE=$(echo "$me" | jf "['role']") || return 1
+    return 0
+}
+
+# ═════════════════════════════════════════════════════════════════════════════
 #  LOGIN
 # ═════════════════════════════════════════════════════════════════════════════
 do_login() {
@@ -83,6 +111,7 @@ do_login() {
     TOKEN=$(echo "$resp" | jf "['token']")
     USERNAME=$(echo "$resp" | jf "['username']")
     ROLE=$(echo "$resp" | jf "['role']")
+    save_credentials
     info "Logged in as ${USERNAME} (${ROLE})"
     sleep 1
 }
@@ -734,7 +763,12 @@ main() {
     if ! command -v curl &>/dev/null; then echo "curl required"; exit 1; fi
     if ! command -v python3 &>/dev/null; then echo "python3 required"; exit 1; fi
 
-    do_login
+    if load_credentials; then
+        info "Restored session as ${USERNAME} (${ROLE})"
+        sleep 1
+    else
+        do_login
+    fi
     main_menu
 }
 
