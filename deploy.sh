@@ -187,7 +187,7 @@ setup_nginx() {
     sudo mkdir -p /etc/nginx/sites-enabled
 
     # Remove default nginx site to avoid server_name conflict
-    if [ -L /etc/nginx/sites-enabled/default ]; then
+    if [ -L /etc/nginx/sites-enabled/default ] || [ -f /etc/nginx/sites-enabled/default ]; then
         sudo rm /etc/nginx/sites-enabled/default
         log_info "Removed conflicting default nginx site"
     fi
