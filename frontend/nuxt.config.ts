@@ -51,7 +51,7 @@ export default defineNuxtConfig({
       ]
     },
     workbox: {
-      navigateFallback: '/',
+      navigateFallback: '/200.html',
       navigateFallbackDenylist: [/^\/api\//, /^\/share\//],
       globPatterns: ['**/*.{js,css,html,png,svg,ico}'],
       runtimeCaching: [

@@ -1,8 +1,9 @@
 export default defineNuxtRouteMiddleware((to) => {
-  // Skip during SSG prerendering — auth is client-only (localStorage)
   if (import.meta.server) return
-  // Allow the login page and public share pages through
+  // Allow login and public share pages through
   if (to.path === '/login' || to.path.startsWith('/share/')) return
+  // Fallback: check actual browser URL (handles SW/cache serving wrong pre-rendered page)
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/share/')) return
   const auth = useAuth()
   if (!auth.isLoggedIn) {
     return navigateTo({ path: '/login', query: { redirect: to.fullPath } })
