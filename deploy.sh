@@ -10,6 +10,11 @@ NGINX_SITES_ENABLED="/etc/nginx/sites-enabled/md-browse"
 BACKEND_PORT="${BACKEND_PORT:-3001}"
 PM2_APP_NAME="md-browse-api"
 HOSTNAME_OPT=""
+DEFAULT_SSL_CERT="/etc/ssl/cloudflare/tigu.cert"
+DEFAULT_SSL_KEY="/etc/ssl/cloudflare/tigu.key"
+SSL_ENABLED=false
+SSL_CERT=""
+SSL_KEY=""
 
 # Parse flags
 while [[ $# -gt 0 ]]; do
@@ -105,6 +110,69 @@ deploy_backend() {
     log_info "Backend deployed with PM2"
 }
 
+resolve_ssl() {
+    # Check if existing deployed nginx config already has SSL certs configured
+    if [ -f "$NGINX_SITES_AVAILABLE" ]; then
+        local existing_cert existing_key
+        existing_cert=$(grep -Po '^\s*ssl_certificate\s+\K[^;]+' "$NGINX_SITES_AVAILABLE" 2>/dev/null | head -1)
+        existing_key=$(grep -Po '^\s*ssl_certificate_key\s+\K[^;]+' "$NGINX_SITES_AVAILABLE" 2>/dev/null | head -1)
+        if [ -n "$existing_cert" ] && [ -n "$existing_key" ] && [ -f "$existing_cert" ] && [ -f "$existing_key" ]; then
+            SSL_ENABLED=true
+            SSL_CERT="$existing_cert"
+            SSL_KEY="$existing_key"
+            log_info "Preserving existing SSL certificates from deployed nginx config"
+            log_info "  cert: $SSL_CERT"
+            log_info "  key:  $SSL_KEY"
+            return
+        fi
+    fi
+
+    if [ -f "$DEFAULT_SSL_CERT" ] && [ -f "$DEFAULT_SSL_KEY" ]; then
+        SSL_ENABLED=true
+        SSL_CERT="$DEFAULT_SSL_CERT"
+        SSL_KEY="$DEFAULT_SSL_KEY"
+        log_info "SSL certificates found at default path"
+        return
+    fi
+
+    log_warn "Default SSL certificate not found at $DEFAULT_SSL_CERT"
+    log_info "You have 60 seconds to provide an SSL certificate path, or HTTPS will be skipped."
+
+    local cert_path key_path
+
+    read -t 60 -rp "Enter SSL certificate file path (or press Enter to skip HTTPS): " cert_path
+    if [ $? -ne 0 ] || [ -z "$cert_path" ]; then
+        echo ""
+        log_warn "No SSL certificate provided — deploying with HTTP only (port 80)"
+        return
+    fi
+
+    if [ ! -f "$cert_path" ]; then
+        log_error "Certificate file not found: $cert_path"
+        log_warn "Deploying with HTTP only (port 80)"
+        return
+    fi
+
+    read -t 60 -rp "Enter SSL certificate key file path: " key_path
+    if [ $? -ne 0 ] || [ -z "$key_path" ]; then
+        echo ""
+        log_warn "No SSL key provided — deploying with HTTP only (port 80)"
+        return
+    fi
+
+    if [ ! -f "$key_path" ]; then
+        log_error "Key file not found: $key_path"
+        log_warn "Deploying with HTTP only (port 80)"
+        return
+    fi
+
+    SSL_ENABLED=true
+    SSL_CERT="$cert_path"
+    SSL_KEY="$key_path"
+    log_info "Using SSL certificate: $SSL_CERT"
+    log_info "Using SSL key: $SSL_KEY"
+}
+
 setup_nginx() {
     log_info "Setting up nginx..."
     
@@ -112,6 +180,8 @@ setup_nginx() {
         log_error "Nginx config not found at $NGINX_CONF"
         exit 1
     fi
+
+    resolve_ssl
     
     sudo mkdir -p /etc/nginx/sites-available
     sudo mkdir -p /etc/nginx/sites-enabled
@@ -130,6 +200,18 @@ setup_nginx() {
         sudo sed -i "s/listen 80 default_server;/listen 80;/" "$NGINX_SITES_AVAILABLE"
         sudo sed -i "s/listen 443 ssl default_server;/listen 443 ssl;/" "$NGINX_SITES_AVAILABLE"
         log_info "Nginx server_name set to: $HOSTNAME_OPT"
+    fi
+
+    # Apply SSL configuration
+    if [ "$SSL_ENABLED" = true ]; then
+        sudo sed -i "s|ssl_certificate     .*|ssl_certificate     ${SSL_CERT};|" "$NGINX_SITES_AVAILABLE"
+        sudo sed -i "s|ssl_certificate_key .*|ssl_certificate_key ${SSL_KEY};|" "$NGINX_SITES_AVAILABLE"
+        log_info "SSL enabled with certificate: $SSL_CERT"
+    else
+        # Remove SSL config for HTTP-only deployment
+        sudo sed -i '/listen 443/d' "$NGINX_SITES_AVAILABLE"
+        sudo sed -i '/ssl_/d' "$NGINX_SITES_AVAILABLE"
+        log_info "SSL disabled — serving HTTP only on port 80"
     fi
     
     if [ -L "$NGINX_SITES_ENABLED" ] || [ -f "$NGINX_SITES_ENABLED" ]; then
