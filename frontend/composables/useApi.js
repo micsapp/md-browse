@@ -154,6 +154,27 @@ export const useApi = () => {
     return $fetch(url)
   }
 
+  async function uploadFolderAssets(folderId, formData) {
+    return request(`/v1/folders/${folderId}/assets`, {
+      method: 'POST',
+      body: formData
+    })
+  }
+
+  async function getFolderAssets(folderId) {
+    return request(`/v1/folders/${folderId}/assets`)
+  }
+
+  async function deleteFolderAsset(folderId, filename) {
+    return request(`/v1/folders/${folderId}/assets/${encodeURIComponent(filename)}`, {
+      method: 'DELETE'
+    })
+  }
+
+  function folderAssetUrl(folderId, filename) {
+    return `${baseUrl}/v1/folders/${folderId}/assets/${encodeURIComponent(filename)}`
+  }
+
   return {
     request,
     getDocuments,
@@ -179,6 +200,10 @@ export const useApi = () => {
     createShare,
     getShares,
     deleteShare,
-    getSharedDocument
+    getSharedDocument,
+    uploadFolderAssets,
+    getFolderAssets,
+    deleteFolderAsset,
+    folderAssetUrl
   }
 }

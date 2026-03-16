@@ -16,6 +16,7 @@ const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const DATA_DIR = path.join(__dirname, 'data');
 const DOCS_DIR = path.join(DATA_DIR, 'uploads');
+const ASSETS_DIR = path.join(DOCS_DIR, 'assets');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const META_FILE = path.join(DATA_DIR, 'metadata.json');
 const VERSIONS_FILE = path.join(DATA_DIR, 'versions.json');
@@ -107,8 +108,16 @@ function sendError(res, status, code, message, hint, requestId) {
   });
 }
 
-function renderMarkdown(md) {
-  return marked(md);
+function renderMarkdown(md, docId) {
+  const renderer = new marked.Renderer();
+  const origImage = renderer.image.bind(renderer);
+  renderer.image = function (token) {
+    if (docId && token.href && !token.href.startsWith('http') && !token.href.startsWith('data:') && !token.href.startsWith('/')) {
+      token.href = `/api/v1/documents/${docId}/assets/${encodeURIComponent(token.href)}`;
+    }
+    return origImage(token);
+  };
+  return marked(md, { renderer });
 }
 
 async function appendAuditLog(actorType, actorId, action, resourceType, resourceId, metadata) {
@@ -421,7 +430,7 @@ app.post('/api/v1/documents/upload', authMiddleware, checkIdempotency, upload.si
 
     await appendAuditLog('user', req.actorId, 'document.create', 'document', id, { title });
 
-    const doc = { ...buildDocSummary(id, metadata[id]), content_md: body, content_html: renderMarkdown(body) };
+    const doc = { ...buildDocSummary(id, metadata[id]), content_md: body, content_html: renderMarkdown(body, id) };
     await saveIdempotencyResult(req.idempotencyKey, { documents: [doc] });
     res.status(201).json({ documents: [doc] });
   } catch (err) {
@@ -447,7 +456,7 @@ app.get('/api/v1/documents/:id', agentTokenMiddleware, requireScope('documents:r
 
     const doc = buildDocSummary(id, meta);
     if (include_raw !== 'false') doc.content_md = rawContent;
-    if (include_rendered !== 'false') doc.content_html = renderMarkdown(body);
+    if (include_rendered !== 'false') doc.content_html = renderMarkdown(body, id);
 
     res.json(doc);
   } catch (err) {
@@ -549,7 +558,7 @@ app.put('/api/v1/documents/:id', agentTokenMiddleware, requireScope('documents:w
     const doc = {
       ...buildDocSummary(id, metadata[id]),
       content_md: updatedContent,
-      content_html: renderMarkdown(updatedContent)
+      content_html: renderMarkdown(updatedContent, id)
     };
 
     await saveIdempotencyResult(req.idempotencyKey, doc);
@@ -656,10 +665,8 @@ app.post('/api/v1/documents/:id/rollback', authMiddleware, checkIdempotency, asy
     const doc = {
       ...buildDocSummary(id, metadata[id]),
       content_md: targetVer.content_md,
-      content_html: renderMarkdown(body)
+      content_html: renderMarkdown(body, id)
     };
-
-    await saveIdempotencyResult(req.idempotencyKey, doc);
     res.json(doc);
   } catch (err) {
     sendError(res, 500, 'internal_error', err.message, null, req.requestId);
@@ -1353,7 +1360,7 @@ app.get('/api/share/:token', async (req, res) => {
     const doc = {
       ...buildDocSummary(share.document_id, meta),
       content_md: rawContent,
-      content_html: renderMarkdown(body),
+      content_html: renderMarkdown(body, share.document_id),
       shared: true
     };
     res.json(doc);
@@ -1362,10 +1369,187 @@ app.get('/api/share/:token', async (req, res) => {
   }
 });
 
+// ── Document Assets ─────────────────────────────────────────────────────────
+
+const ALLOWED_ASSET_EXTS = ['.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico'];
+const ASSET_MIME = {
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
+  '.bmp': 'image/bmp', '.ico': 'image/x-icon'
+};
+
+const assetStorage = multer.diskStorage({
+  destination: async (req, file, cb) => {
+    const dir = path.join(ASSETS_DIR, req.params.id);
+    await fs.mkdir(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => cb(null, sanitizeFilename(file.originalname))
+});
+const assetUpload = multer({
+  storage: assetStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ALLOWED_ASSET_EXTS.includes(ext)) cb(null, true);
+    else cb(apiError('validation_error', 'Only image files allowed', `Allowed: ${ALLOWED_ASSET_EXTS.join(', ')}`), false);
+  }
+});
+
+// Serve a document asset
+app.get('/api/v1/documents/:id/assets/:filename', async (req, res) => {
+  try {
+    const { id, filename } = req.params;
+    const metadata = await readJson(META_FILE, {});
+    const meta = metadata[id];
+    if (!meta || meta.deleted_at) return sendError(res, 404, 'not_found', 'Document not found', null, req.requestId);
+
+    const safeName = path.basename(decodeURIComponent(filename));
+    const assetPath = path.join(ASSETS_DIR, id, safeName);
+    await fs.access(assetPath);
+
+    const ext = path.extname(safeName).toLowerCase();
+    if (ASSET_MIME[ext]) res.setHeader('Content-Type', ASSET_MIME[ext]);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    const content = await fs.readFile(assetPath);
+    res.send(content);
+  } catch {
+    sendError(res, 404, 'not_found', 'Asset not found', null, req.requestId);
+  }
+});
+
+// Upload assets for a document
+app.post('/api/v1/documents/:id/assets', authMiddleware, assetUpload.array('files', 20), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const metadata = await readJson(META_FILE, {});
+    if (!metadata[id] || metadata[id].deleted_at) {
+      return sendError(res, 404, 'not_found', 'Document not found', null, req.requestId);
+    }
+    if (!req.files?.length) {
+      return sendError(res, 400, 'validation_error', 'No files uploaded', null, req.requestId);
+    }
+    res.json({ uploaded: req.files.map(f => f.originalname) });
+  } catch (err) {
+    sendError(res, 500, 'internal_error', err.message, null, req.requestId);
+  }
+});
+
+// List assets for a document
+app.get('/api/v1/documents/:id/assets', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const assetDir = path.join(ASSETS_DIR, id);
+    const files = await fs.readdir(assetDir).catch(() => []);
+    res.json({ assets: files });
+  } catch {
+    res.json({ assets: [] });
+  }
+});
+
+// ── Folder-level assets ──────────────────────────────────────────────────────
+const FOLDER_ASSETS_DIR = path.join(ASSETS_DIR, '_folders');
+
+const folderAssetStorage = multer.diskStorage({
+  destination: async (req, file, cb) => {
+    const folderId = req.params.folderId === 'root' ? '_root' : req.params.folderId;
+    const dir = path.join(FOLDER_ASSETS_DIR, folderId);
+    await fs.mkdir(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => cb(null, sanitizeFilename(file.originalname))
+});
+const folderAssetUpload = multer({
+  storage: folderAssetStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ALLOWED_ASSET_EXTS.includes(ext)) cb(null, true);
+    else cb(apiError('validation_error', 'Only image files allowed', `Allowed: ${ALLOWED_ASSET_EXTS.join(', ')}`), false);
+  }
+});
+
+// Upload assets to a folder
+app.post('/api/v1/folders/:folderId/assets', authMiddleware, folderAssetUpload.array('files', 20), async (req, res) => {
+  try {
+    const { folderId } = req.params;
+    // Validate folder exists (unless 'root')
+    if (folderId !== 'root') {
+      const folders = await readJson(FOLDERS_FILE, {});
+      if (!folders[folderId]) {
+        return sendError(res, 404, 'not_found', 'Folder not found', null, req.requestId);
+      }
+    }
+    if (!req.files?.length) {
+      return sendError(res, 400, 'validation_error', 'No files uploaded', null, req.requestId);
+    }
+    await appendAuditLog('user', req.user.username, 'upload_folder_assets', 'folder', folderId, {
+      files: req.files.map(f => f.originalname)
+    });
+    res.json({ uploaded: req.files.map(f => ({ name: f.originalname, stored: f.filename, size: f.size })) });
+  } catch (err) {
+    sendError(res, 500, 'internal_error', err.message, null, req.requestId);
+  }
+});
+
+// List assets in a folder
+app.get('/api/v1/folders/:folderId/assets', async (req, res) => {
+  try {
+    const dirKey = req.params.folderId === 'root' ? '_root' : req.params.folderId;
+    const dir = path.join(FOLDER_ASSETS_DIR, dirKey);
+    const files = await fs.readdir(dir).catch(() => []);
+    const assets = [];
+    for (const name of files) {
+      try {
+        const stat = await fs.stat(path.join(dir, name));
+        if (stat.isFile()) assets.push({ name, size: stat.size });
+      } catch { /* skip */ }
+    }
+    res.json({ assets });
+  } catch {
+    res.json({ assets: [] });
+  }
+});
+
+// Serve a folder asset
+app.get('/api/v1/folders/:folderId/assets/:filename', async (req, res) => {
+  try {
+    const dirKey = req.params.folderId === 'root' ? '_root' : req.params.folderId;
+    const safeName = path.basename(decodeURIComponent(req.params.filename));
+    const assetPath = path.join(FOLDER_ASSETS_DIR, dirKey, safeName);
+    await fs.access(assetPath);
+    const ext = path.extname(safeName).toLowerCase();
+    if (ASSET_MIME[ext]) res.setHeader('Content-Type', ASSET_MIME[ext]);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    const content = await fs.readFile(assetPath);
+    res.send(content);
+  } catch {
+    sendError(res, 404, 'not_found', 'Asset not found', null, req.requestId);
+  }
+});
+
+// Delete a folder asset
+app.delete('/api/v1/folders/:folderId/assets/:filename', authMiddleware, async (req, res) => {
+  try {
+    const { folderId, filename } = req.params;
+    const dirKey = folderId === 'root' ? '_root' : folderId;
+    const safeName = path.basename(decodeURIComponent(filename));
+    const assetPath = path.join(FOLDER_ASSETS_DIR, dirKey, safeName);
+    await fs.access(assetPath);
+    await fs.unlink(assetPath);
+    await appendAuditLog('user', req.user.username, 'delete_folder_asset', 'folder', folderId, { file: safeName });
+    res.json({ deleted: safeName });
+  } catch {
+    sendError(res, 404, 'not_found', 'Asset not found', null, req.requestId);
+  }
+});
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
   await fs.mkdir(DATA_DIR, { recursive: true });
   await fs.mkdir(DOCS_DIR, { recursive: true });
+  await fs.mkdir(ASSETS_DIR, { recursive: true });
+  await fs.mkdir(FOLDER_ASSETS_DIR, { recursive: true });
 
   for (const [file, def] of [
     [USERS_FILE, {}],

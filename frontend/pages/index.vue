@@ -63,6 +63,7 @@
     <div class="main-header">
       <h1>{{ selectedFolderLabel }}</h1>
       <div class="view-controls">
+        <button v-if="auth.user && selectedFolderId !== undefined" class="view-btn upload-img-btn" @click="showAssetUpload = true" title="Upload image / media">📷</button>
         <button v-if="auth.user" :class="['view-btn', { active: selectMode }]" @click="toggleSelectMode" title="Select mode">☑</button>
         <button :class="['view-btn', { active: viewMode === 'card' }]" @click="viewMode = 'card'" title="Card view">⊞</button>
         <button :class="['view-btn', { active: viewMode === 'compact' }]" @click="viewMode = 'compact'" title="Compact view">☰</button>
@@ -157,6 +158,53 @@
         </div>
         <div class="modal-btns">
           <button @click="moveDocId = null; batchMoving = false" class="btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Asset Upload Modal ────────────────────────────────────────────── -->
+    <div v-if="showAssetUpload" class="modal-overlay" @click.self="showAssetUpload = false">
+      <div class="modal asset-upload-modal">
+        <h3>📷 Upload Images / Media</h3>
+        <p class="asset-folder-label">Into: <strong>{{ selectedFolderLabel }}</strong></p>
+        <div class="drop-zone" :class="{ dragover: isDragging }" @dragover.prevent="isDragging = true" @dragleave="isDragging = false" @drop.prevent="onDrop">
+          <span v-if="!assetFiles.length">Drop images here or click to browse</span>
+          <span v-else>{{ assetFiles.length }} file{{ assetFiles.length > 1 ? 's' : '' }} selected</span>
+          <input type="file" multiple accept="image/*,.svg" class="drop-input" @change="onAssetFilePick" />
+        </div>
+        <div v-if="assetFiles.length" class="asset-file-list">
+          <div v-for="(f, i) in assetFiles" :key="i" class="asset-file-item">
+            <span class="asset-file-name">{{ f.name }}</span>
+            <span class="asset-file-size">{{ formatFileSize(f.size) }}</span>
+            <button class="btn-sm btn-danger" @click="assetFiles.splice(i, 1)">✕</button>
+          </div>
+        </div>
+        <div v-if="assetUploadError" class="error-msg">{{ assetUploadError }}</div>
+        <div class="modal-btns">
+          <button @click="doAssetUpload" class="btn-primary" :disabled="!assetFiles.length || assetUploading">
+            {{ assetUploading ? 'Uploading...' : `Upload ${assetFiles.length || ''} file${assetFiles.length !== 1 ? 's' : ''}` }}
+          </button>
+          <button @click="showAssetUpload = false; assetFiles = []; assetUploadError = ''" class="btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Folder Asset Gallery ────────────────────────────────────────────── -->
+    <div v-if="folderAssets.length && selectedFolderId !== undefined" class="asset-gallery">
+      <div class="asset-gallery-header">
+        <h3>📷 Images / Media</h3>
+        <button class="btn-sm" @click="showAssetGallery = !showAssetGallery">{{ showAssetGallery ? 'Hide' : 'Show' }} ({{ folderAssets.length }})</button>
+      </div>
+      <div v-if="showAssetGallery" class="asset-grid">
+        <div v-for="asset in folderAssets" :key="asset.name" class="asset-card">
+          <img :src="assetUrl(asset.name)" :alt="asset.name" class="asset-thumb" loading="lazy" />
+          <div class="asset-info">
+            <span class="asset-name" :title="asset.name">{{ asset.name }}</span>
+            <div class="asset-actions">
+              <button class="btn-sm" @click="copyAssetRef(asset.name)" :title="'Copy markdown reference'">📋</button>
+              <button v-if="auth.user" class="btn-sm btn-danger" @click="deleteAsset(asset.name)">🗑</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -358,6 +406,84 @@ function formatDate(date) { return date ? new Date(date).toLocaleDateString() : 
 // ── View mode ────────────────────────────────────────────────────────────────
 const viewMode = ref(import.meta.client ? (localStorage.getItem('viewMode') || 'card') : 'card')
 watch(viewMode, v => { if (import.meta.client) localStorage.setItem('viewMode', v) })
+
+// ── Folder Asset Upload ──────────────────────────────────────────────────────
+const showAssetUpload = ref(false)
+const showAssetGallery = ref(true)
+const assetFiles = ref([])
+const assetUploading = ref(false)
+const assetUploadError = ref('')
+const isDragging = ref(false)
+const folderAssets = ref([])
+const copiedAsset = ref('')
+
+const currentAssetFolderId = computed(() => selectedFolderId.value === null ? 'root' : selectedFolderId.value)
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
+function onAssetFilePick(e) {
+  assetFiles.value = [...assetFiles.value, ...Array.from(e.target.files)]
+}
+
+function onDrop(e) {
+  isDragging.value = false
+  const dropped = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/') || f.name.endsWith('.svg'))
+  assetFiles.value = [...assetFiles.value, ...dropped]
+}
+
+async function doAssetUpload() {
+  if (!assetFiles.value.length) return
+  assetUploading.value = true
+  assetUploadError.value = ''
+  const formData = new FormData()
+  for (const f of assetFiles.value) formData.append('files', f)
+  try {
+    await api.uploadFolderAssets(currentAssetFolderId.value, formData)
+    assetFiles.value = []
+    showAssetUpload.value = false
+    await refreshFolderAssets()
+  } catch (e) {
+    assetUploadError.value = e.data?.error?.message || e.message || 'Upload failed'
+  } finally {
+    assetUploading.value = false
+  }
+}
+
+function assetUrl(filename) {
+  return api.folderAssetUrl(currentAssetFolderId.value, filename)
+}
+
+function copyAssetRef(filename) {
+  const url = assetUrl(filename)
+  const md = `![${filename}](${url})`
+  navigator.clipboard.writeText(md)
+  copiedAsset.value = filename
+  setTimeout(() => { copiedAsset.value = '' }, 2000)
+}
+
+async function deleteAsset(filename) {
+  if (!confirm(`Delete "${filename}"?`)) return
+  try {
+    await api.deleteFolderAsset(currentAssetFolderId.value, filename)
+    await refreshFolderAssets()
+  } catch (e) {
+    console.error('Delete asset failed', e)
+  }
+}
+
+async function refreshFolderAssets() {
+  if (selectedFolderId.value === undefined) { folderAssets.value = []; return }
+  try {
+    const res = await api.getFolderAssets(currentAssetFolderId.value)
+    folderAssets.value = res.assets || []
+  } catch { folderAssets.value = [] }
+}
+
+watch(selectedFolderId, () => refreshFolderAssets(), { immediate: true })
 </script>
 
 <style scoped>
@@ -528,6 +654,60 @@ watch(viewMode, v => { if (import.meta.client) localStorage.setItem('viewMode', 
 @media (min-width: 769px) {
   .folder-panel { width: 320px; }
 }
+
+/* ── Multi-select ──────────────────────────────────────────────────────── */
+
+/* ── Asset Upload ──────────────────────────────────────────────────────── */
+.upload-img-btn { background: var(--accent) !important; color: white !important; border-color: var(--accent) !important; }
+.upload-img-btn:hover { opacity: 0.85; }
+
+.asset-upload-modal { width: min(480px, calc(100vw - 2rem)); }
+.asset-folder-label { font-size: 0.85rem; color: var(--text2); margin: 0 0 0.75rem; }
+
+.drop-zone {
+  position: relative; border: 2px dashed var(--border2); border-radius: 8px;
+  padding: 2rem 1rem; text-align: center; color: var(--text3); cursor: pointer;
+  transition: all 0.2s; margin-bottom: 0.75rem;
+}
+.drop-zone.dragover { border-color: var(--accent); background: rgba(52, 152, 219, 0.05); color: var(--accent); }
+.drop-zone:hover { border-color: var(--accent); }
+.drop-input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+.asset-file-list { margin-bottom: 0.75rem; max-height: 150px; overflow-y: auto; }
+.asset-file-item {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.3rem 0.5rem; font-size: 0.85rem; border-bottom: 1px solid var(--border);
+}
+.asset-file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.asset-file-size { color: var(--text3); font-size: 0.78rem; white-space: nowrap; }
+
+/* ── Asset Gallery ─────────────────────────────────────────────────────── */
+.asset-gallery { margin-top: 1.5rem; }
+.asset-gallery-header {
+  display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;
+}
+.asset-gallery-header h3 { margin: 0; font-size: 1rem; color: var(--text); flex: 1; }
+
+.asset-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.5rem;
+}
+.asset-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  overflow: hidden; box-shadow: 0 1px 3px var(--shadow);
+}
+.asset-thumb {
+  width: 100%; height: 100px; object-fit: cover; display: block;
+  background: var(--surface2);
+}
+.asset-info {
+  padding: 0.35rem 0.5rem; display: flex; align-items: center; gap: 0.25rem;
+}
+.asset-name {
+  flex: 1; font-size: 0.75rem; color: var(--text2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.asset-actions { display: flex; gap: 0.2rem; flex-shrink: 0; }
 
 /* ── Multi-select ──────────────────────────────────────────────────────── */
 .doc-check { width: 16px; height: 16px; cursor: pointer; flex-shrink: 0; accent-color: var(--accent); }
