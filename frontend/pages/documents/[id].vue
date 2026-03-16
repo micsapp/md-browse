@@ -147,14 +147,19 @@ if (import.meta.client) {
 
 const renderedContent = computed(() => {
   if (!doc.value) return ''
-  if (doc.value.content_html) return DOMPurify.sanitize(doc.value.content_html)
-  const md = doc.value.content_md || ''
-  return DOMPurify.sanitize(marked(md))
+  let html = doc.value.content_html || marked(doc.value.content_md || '')
+  // Rewrite relative image srcs to asset API
+  html = html.replace(/(<img\s[^>]*src=")(?!https?:|data:|\/)(.*?)(")/g,
+    `$1/api/v1/documents/${route.params.id}/assets/$2$3`)
+  return DOMPurify.sanitize(html)
 })
 
 const editPreviewHtml = computed(() => {
   if (!editForm.value.content_md) return ''
-  return DOMPurify.sanitize(marked(editForm.value.content_md))
+  let html = marked(editForm.value.content_md)
+  html = html.replace(/(<img\s[^>]*src=")(?!https?:|data:|\/)(.*?)(")/g,
+    `$1/api/v1/documents/${route.params.id}/assets/$2$3`)
+  return DOMPurify.sanitize(html)
 })
 
 function formatDate(date) {

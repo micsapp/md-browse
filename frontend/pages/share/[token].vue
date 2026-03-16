@@ -58,8 +58,13 @@ if (import.meta.client) {
 
 const renderedContent = computed(() => {
   if (!doc.value) return ''
-  if (doc.value.content_html) return DOMPurify.sanitize(doc.value.content_html)
-  return DOMPurify.sanitize(marked(doc.value.content_md || ''))
+  let html = doc.value.content_html || marked(doc.value.content_md || '')
+  // Rewrite relative image srcs to asset API (doc.id comes from backend response)
+  if (doc.value.id) {
+    html = html.replace(/(<img\s[^>]*src=")(?!https?:|data:|\/)(.*?)(")/g,
+      `$1/api/v1/documents/${doc.value.id}/assets/$2$3`)
+  }
+  return DOMPurify.sanitize(html)
 })
 
 function formatDate(date) { return date ? new Date(date).toLocaleDateString() : '' }
