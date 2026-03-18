@@ -16,7 +16,7 @@
           <button @click="doSearch">🔍</button>
         </div>
         <template v-if="auth.user">
-          <NuxtLink to="/upload" @click="menuOpen = false">Upload</NuxtLink>
+          <button class="nav-btn" @click="uploadModal.open(); menuOpen = false">Upload</button>
           <NuxtLink v-if="auth.isAdmin" to="/admin" @click="menuOpen = false">Admin</NuxtLink>
           <span class="user">{{ auth.user }}</span>
           <button @click="auth.logout(); menuOpen = false">Logout</button>
@@ -37,6 +37,7 @@
 
   <FolderPanel />
   <DocViewerModal />
+  <UploadModal />
 </template>
 
 <script setup>
@@ -47,6 +48,7 @@ const auth = useAuth()
 const theme = useTheme()
 const menuOpen = ref(false)
 const panel = useFolderPanel()
+const uploadModal = useUploadModal()
 
 function doSearch() {
   if (searchQuery.value.trim()) {
