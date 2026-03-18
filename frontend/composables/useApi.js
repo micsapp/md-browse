@@ -9,7 +9,7 @@ export const useApi = () => {
     try {
       return await $fetch(`${baseUrl}${url}`, { ...options, headers })
     } catch (e) {
-      if (e?.response?.status === 401 || e?.status === 401) {
+      if ((e?.response?.status === 401 || e?.status === 401) && auth.isLoggedIn) {
         auth.handleUnauthorized()
       }
       throw e

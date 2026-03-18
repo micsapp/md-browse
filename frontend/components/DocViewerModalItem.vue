@@ -65,8 +65,10 @@
         </div>
         <div v-if="shares.length" class="dv-share-list">
           <div v-for="s in shares" :key="s.id" class="dv-share-item">
-            <span>{{ s.has_access_code ? '🔒' : '🔗' }} /share/{{ s.token.slice(0, 8) }}…</span>
+            <span class="dv-share-icon">{{ s.has_access_code ? '🔒' : '🔗' }}</span>
+            <input :value="shareUrl(s.token)" readonly @click="$event.target.select()" class="dv-share-item-url" />
             <span class="dv-dimmed">{{ formatDate(s.created_at) }}</span>
+            <button @click="copyUrl(s.token, s.id)" class="dv-btn">{{ copiedId === s.id ? '✓' : 'Copy' }}</button>
             <button @click="revokeShare(s.id)" class="dv-btn dv-btn-danger">Revoke</button>
           </div>
         </div>
@@ -203,6 +205,7 @@ const shareCode = ref('')
 const newShareUrl = ref('')
 const newShareHasCode = ref(false)
 const copied = ref(false)
+const copiedId = ref(null)
 
 if (import.meta.client) {
   marked.setOptions({
@@ -305,10 +308,20 @@ async function revokeShare(shareId) {
   await api.deleteShare(shareId)
   await loadShares()
 }
+function shareUrl(token) {
+  return `${window.location.origin}/share/${token}`
+}
+
 async function copyShareUrl() {
   await navigator.clipboard.writeText(newShareUrl.value)
   copied.value = true
   setTimeout(() => { copied.value = false }, 2000)
+}
+
+async function copyUrl(token, id) {
+  await navigator.clipboard.writeText(shareUrl(token))
+  copiedId.value = id
+  setTimeout(() => { copiedId.value = null }, 2000)
 }
 </script>
 
@@ -395,7 +408,9 @@ async function copyShareUrl() {
 .dv-share-url-row { display: flex; gap: 0.3rem; }
 .dv-share-url-row input { flex: 1; padding: 0.28rem 0.4rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.8rem; font-family: monospace; background: var(--surface2); color: var(--text); }
 .dv-share-list { border-top: 1px solid var(--border); padding-top: 0.4rem; }
-.dv-share-item { display: flex; gap: 0.5rem; align-items: center; padding: 0.25rem 0; font-size: 0.8rem; color: var(--text2); }
+.dv-share-item { display: flex; gap: 0.4rem; align-items: center; padding: 0.25rem 0; font-size: 0.8rem; color: var(--text2); flex-wrap: wrap; }
+.dv-share-icon { flex-shrink: 0; }
+.dv-share-item-url { flex: 1; min-width: 0; padding: 0.2rem 0.35rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.75rem; font-family: monospace; background: var(--surface2); color: var(--text); cursor: text; }
 
 /* ── Editor ──────────────────────────────────────────────────────────────── */
 .dv-editor { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1rem; }
