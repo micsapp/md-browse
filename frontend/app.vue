@@ -34,6 +34,9 @@
       <NuxtPage />
     </main>
   </div>
+
+  <FolderPanel />
+  <DocViewerModal />
 </template>
 
 <script setup>
@@ -43,6 +46,7 @@ const router = useRouter()
 const auth = useAuth()
 const theme = useTheme()
 const menuOpen = ref(false)
+const panel = useFolderPanel()
 
 function doSearch() {
   if (searchQuery.value.trim()) {
@@ -52,7 +56,7 @@ function doSearch() {
 }
 
 function toggleFolders() {
-  if (import.meta.client && window.__toggleFolders) window.__toggleFolders()
+  panel.toggle()
 }
 </script>
 

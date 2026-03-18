@@ -4,7 +4,7 @@
     <div v-if="pending" class="loading">Searching...</div>
     <div v-else class="results">
       <div v-for="doc in results" :key="doc.id" class="result-card">
-        <h2><NuxtLink :to="`/documents/${doc.id}`">{{ doc.title }}</NuxtLink></h2>
+        <h2><a href="#" @click.prevent="docViewer.openDoc(doc.id)">{{ doc.title }}</a></h2>
         <p class="snippet">...{{ doc.snippet }}...</p>
         <div class="meta">
           <span class="category">{{ doc.category }}</span>
@@ -18,6 +18,7 @@
 <script setup>
 const route = useRoute()
 const api = useApi()
+const docViewer = useDocViewer()
 const query = computed(() => route.query.q || '')
 
 const { data: results, pending } = await useAsyncData(
@@ -33,7 +34,7 @@ h1 { margin-bottom: 1.5rem; }
 .results { display: grid; gap: 1rem; }
 .result-card { background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 .result-card h2 { margin-bottom: 0.5rem; }
-.result-card h2 a { color: #2c3e50; text-decoration: none; }
+.result-card h2 a { color: #2c3e50; text-decoration: none; cursor: pointer; }
 .snippet { color: #666; margin-bottom: 0.5rem; font-size: 0.95rem; }
 .snippet :deep(mark) { background: #fff3cd; padding: 0 2px; }
 .meta { display: flex; gap: 0.5rem; }
