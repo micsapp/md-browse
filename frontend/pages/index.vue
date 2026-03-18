@@ -436,7 +436,7 @@ watch(selectedFolderId, () => refreshFolderAssets(), { immediate: true })
 .btn-danger { border-color: var(--danger); color: var(--danger); }
 
 /* ── Modals ─────────────────────────────────────────────────────────────── */
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 500; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .modal { background: var(--surface); padding: 1.25rem; border-radius: 8px; width: min(360px, calc(100vw - 2rem)); box-shadow: 0 8px 32px var(--shadow2); color: var(--text); }
 .modal h3 { margin: 0 0 0.75rem; font-size: 1rem; }
 .modal input { width: 100%; padding: 0.5rem; border: 1px solid var(--border2); border-radius: 4px; margin-bottom: 0.75rem; font-size: 0.95rem; background: var(--surface2); color: var(--text); box-sizing: border-box; }
