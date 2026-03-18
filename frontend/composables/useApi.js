@@ -5,11 +5,15 @@ export const useApi = () => {
   const baseUrl = config.public.apiBase
 
   async function request(url, options = {}) {
-    const headers = {
-      ...options.headers,
-      ...auth.getAuthHeaders()
+    const headers = { ...options.headers, ...auth.getAuthHeaders() }
+    try {
+      return await $fetch(`${baseUrl}${url}`, { ...options, headers })
+    } catch (e) {
+      if (e?.response?.status === 401 || e?.status === 401) {
+        auth.handleUnauthorized()
+      }
+      throw e
     }
-    return $fetch(`${baseUrl}${url}`, { ...options, headers })
   }
 
   async function getDocuments(params = {}) {

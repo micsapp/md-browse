@@ -1,20 +1,51 @@
-// Module-level shared state — all useAuth() calls reference the same refs
 const sharedToken = ref(null)
 const sharedUser = ref(null)
 const sharedRole = ref(null)
 let initialized = false
 
+function decodeTokenExp(token) {
+  try {
+    return JSON.parse(atob(token.split('.')[1])).exp // seconds
+  } catch { return null }
+}
+
+function isTokenExpired(token) {
+  const exp = decodeTokenExp(token)
+  return exp ? Date.now() / 1000 > exp : false
+}
+
+function clearSession() {
+  sharedToken.value = null
+  sharedUser.value = null
+  sharedRole.value = null
+  if (import.meta.client) {
+    localStorage.removeItem('token')
+    localStorage.removeItem('username')
+    localStorage.removeItem('role')
+  }
+}
+
 export const useAuth = () => {
-  // Initialize from localStorage once on the client
   if (import.meta.client && !initialized) {
-    sharedToken.value = localStorage.getItem('token')
-    sharedUser.value = localStorage.getItem('username')
-    sharedRole.value = localStorage.getItem('role')
+    const token = localStorage.getItem('token')
+    if (token && isTokenExpired(token)) {
+      // Token expired — clear stale session silently
+      clearSession()
+    } else if (token) {
+      sharedToken.value = token
+      sharedUser.value = localStorage.getItem('username')
+      sharedRole.value = localStorage.getItem('role')
+    }
     initialized = true
   }
 
   const isLoggedIn = computed(() => !!sharedToken.value)
   const isAdmin = computed(() => sharedRole.value === 'admin')
+
+  function handleUnauthorized() {
+    clearSession()
+    navigateTo('/login')
+  }
 
   async function login(username, password) {
     const config = useRuntimeConfig()
@@ -53,14 +84,7 @@ export const useAuth = () => {
   }
 
   function logout() {
-    sharedToken.value = null
-    sharedUser.value = null
-    sharedRole.value = null
-    if (import.meta.client) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('username')
-      localStorage.removeItem('role')
-    }
+    clearSession()
     navigateTo('/login')
   }
 
@@ -69,8 +93,6 @@ export const useAuth = () => {
     return t ? { Authorization: `Bearer ${t}` } : {}
   }
 
-  // reactive() auto-unwraps nested refs in templates:
-  // auth.user → string value, not the ref object
   return reactive({
     user: sharedUser,
     token: sharedToken,
@@ -80,6 +102,7 @@ export const useAuth = () => {
     login,
     register,
     logout,
-    getAuthHeaders
+    getAuthHeaders,
+    handleUnauthorized,
   })
 }
