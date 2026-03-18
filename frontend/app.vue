@@ -7,22 +7,31 @@
         <span></span><span></span><span></span>
       </button>
       <nav class="nav" :class="{ open: menuOpen }" @click.stop>
-        <NuxtLink to="/" @click="menuOpen = false">Documents</NuxtLink>
-        <button class="nav-btn folders-btn" @click="toggleFolders(); menuOpen = false">📁 Folders</button>
-        <NuxtLink to="/categories" @click="menuOpen = false">Categories</NuxtLink>
-        <NuxtLink to="/tags" @click="menuOpen = false">Tags</NuxtLink>
-        <div class="search-box">
-          <input v-model="searchQuery" placeholder="Search..." @keyup.enter="doSearch" />
-          <button @click="doSearch">🔍</button>
-        </div>
-        <template v-if="auth.user">
-          <button class="nav-btn" @click="uploadModal.open(); menuOpen = false">Upload</button>
-          <NuxtLink v-if="auth.isAdmin" to="/admin" @click="menuOpen = false">Admin</NuxtLink>
-          <span class="user">{{ auth.user }}</span>
-          <button @click="auth.logout(); menuOpen = false">Logout</button>
+        <template v-if="!isSharePage">
+          <NuxtLink to="/" @click="menuOpen = false">Documents</NuxtLink>
+          <button class="nav-btn folders-btn" @click="toggleFolders(); menuOpen = false">📁 Folders</button>
+          <NuxtLink to="/categories" @click="menuOpen = false">Categories</NuxtLink>
+          <NuxtLink to="/tags" @click="menuOpen = false">Tags</NuxtLink>
+          <div class="search-box">
+            <input v-model="searchQuery" placeholder="Search..." @keyup.enter="doSearch" />
+            <button @click="doSearch">🔍</button>
+          </div>
+          <template v-if="auth.user">
+            <button class="nav-btn" @click="uploadModal.open(); menuOpen = false">Upload</button>
+            <NuxtLink v-if="auth.isAdmin" to="/admin" @click="menuOpen = false">Admin</NuxtLink>
+            <span class="user">{{ auth.user }}</span>
+            <button @click="auth.logout(); menuOpen = false">Logout</button>
+          </template>
+          <template v-else>
+            <NuxtLink to="/login" @click="menuOpen = false">Login</NuxtLink>
+          </template>
         </template>
         <template v-else>
-          <NuxtLink to="/login" @click="menuOpen = false">Login</NuxtLink>
+          <NuxtLink v-if="!auth.user" to="/login" @click="menuOpen = false">Login</NuxtLink>
+          <template v-else>
+            <span class="user">{{ auth.user }}</span>
+            <button @click="auth.logout(); menuOpen = false">Logout</button>
+          </template>
         </template>
         <button class="theme-toggle" @click.stop="theme.toggle()" :title="theme.isDark ? 'Light mode' : 'Dark mode'">
           {{ theme.isDark ? '☀️' : '🌙' }}
@@ -44,11 +53,14 @@
 const config = useRuntimeConfig().public
 const searchQuery = ref('')
 const router = useRouter()
+const route = useRoute()
 const auth = useAuth()
 const theme = useTheme()
 const menuOpen = ref(false)
 const panel = useFolderPanel()
 const uploadModal = useUploadModal()
+
+const isSharePage = computed(() => route.path.startsWith('/share/'))
 
 function doSearch() {
   if (searchQuery.value.trim()) {
