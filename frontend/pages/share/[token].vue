@@ -95,27 +95,35 @@ onMounted(() => loadDoc())
 </script>
 
 <style scoped>
-.share-page { max-width: 800px; margin: 2rem auto; padding: 0 1.5rem; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-.loading, .error { text-align: center; padding: 2rem; color: #666; }
-.error { color: #e74c3c; }
-.doc-header { margin-bottom: 2rem; border-bottom: 1px solid #eee; padding-bottom: 1rem; }
-.doc-header h1 { margin-bottom: 0.5rem; }
-.meta { display: flex; gap: 1rem; color: #666; font-size: 0.9rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+.share-page { max-width: 800px; margin: 2rem auto; padding: 0 1.5rem; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: var(--text); }
+.loading, .error { text-align: center; padding: 2rem; color: var(--text3); }
+.error { color: var(--danger); }
+.doc-header { margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }
+.doc-header h1 { margin-bottom: 0.5rem; color: var(--text); }
+.meta { display: flex; gap: 1rem; color: var(--text3); font-size: 0.9rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
 .tags { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
-.tag { background: #95a5a6; color: white; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.85rem; }
+.tag { background: var(--surface2); color: var(--text2); border: 1px solid var(--border2); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.85rem; }
 .shared-badge { display: inline-block; background: #f39c12; color: white; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.8rem; }
-.content { line-height: 1.8; }
-.content :deep(h1), .content :deep(h2), .content :deep(h3) { margin: 1.5rem 0 0.5rem; }
+.content { line-height: 1.8; color: var(--text); }
+.content :deep(h1), .content :deep(h2), .content :deep(h3) { margin: 1.5rem 0 0.5rem; color: var(--text); }
 .content :deep(p) { margin-bottom: 1rem; }
-.content :deep(pre) { background: #f8f9fa; padding: 1rem; border-radius: 4px; overflow-x: auto; }
-.content :deep(code) { font-family: 'Fira Code', monospace; }
+.content :deep(pre) { background: var(--surface2); border: 1px solid var(--border); padding: 1rem; border-radius: 4px; overflow-x: auto; }
+.content :deep(pre) :deep(code) { color: var(--text); background: none; }
+.content :deep(code) { font-family: 'Fira Code', monospace; font-size: 0.9em; background: var(--surface2); padding: 0.1em 0.3em; border-radius: 3px; color: var(--text); }
+.content :deep(pre) > :deep(code) { background: none; padding: 0; }
 .content :deep(ul), .content :deep(ol) { margin-left: 1.5rem; margin-bottom: 1rem; }
-.content :deep(blockquote) { border-left: 4px solid #3498db; padding-left: 1rem; margin: 1rem 0; color: #666; }
+.content :deep(blockquote) { border-left: 4px solid var(--accent); padding-left: 1rem; margin: 1rem 0; color: var(--text2); }
+.content :deep(a) { color: var(--accent); }
+.content :deep(table) { border-collapse: collapse; width: 100%; margin-bottom: 1rem; }
+.content :deep(th), .content :deep(td) { border: 1px solid var(--border2); padding: 0.4rem 0.6rem; }
+.content :deep(th) { background: var(--surface2); }
+.content :deep(img) { max-width: 100%; border-radius: 4px; }
 .code-prompt { text-align: center; padding: 3rem 1rem; }
-.code-prompt h2 { margin-bottom: 0.5rem; }
-.code-prompt p { color: #666; margin-bottom: 1rem; }
+.code-prompt h2 { margin-bottom: 0.5rem; color: var(--text); }
+.code-prompt p { color: var(--text3); margin-bottom: 1rem; }
 .code-form { display: flex; gap: 0.5rem; justify-content: center; }
-.code-form input { padding: 0.5rem 0.75rem; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem; width: 200px; }
-.code-form button { padding: 0.5rem 1rem; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; }
-.error-msg { color: #e74c3c; margin-top: 0.5rem; }
+.code-form input { padding: 0.5rem 0.75rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 1rem; width: 200px; background: var(--surface2); color: var(--text); }
+.code-form button { padding: 0.5rem 1rem; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; }
+.code-form button:hover { background: var(--accent-hover); }
+.error-msg { color: var(--danger); margin-top: 0.5rem; }
 </style>
