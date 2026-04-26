@@ -213,34 +213,36 @@ onMounted(() => {
 
 <style scoped>
 h1 { margin-bottom: 1.5rem; }
-.tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 2px solid #e0e0e0; }
-.tabs button { padding: 0.5rem 1.25rem; border: none; background: none; cursor: pointer; font-size: 1rem; border-bottom: 2px solid transparent; margin-bottom: -2px; }
-.tabs button.active { border-bottom-color: #3498db; color: #3498db; font-weight: 600; }
+.tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 2px solid var(--border); }
+.tabs button { padding: 0.5rem 1.25rem; border: none; background: none; cursor: pointer; font-size: 1rem; border-bottom: 2px solid transparent; margin-bottom: -2px; color: var(--text2); }
+.tabs button:hover { color: var(--text); }
+.tabs button.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
 .section { }
 .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
 .section-header h2 { margin: 0; }
-.form-card { background: #fff; border-radius: 8px; box-shadow: 0 2px 4px #0000001a; padding: 1.5rem; margin-bottom: 1.5rem; }
+.form-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 2px 4px var(--shadow); padding: 1.5rem; margin-bottom: 1.5rem; color: var(--text); }
 .form-card h3 { margin-bottom: 1rem; }
 .field { margin-bottom: 1rem; }
-.field label { display: block; font-weight: 500; margin-bottom: 0.25rem; }
-.field input, .field select { width: 100%; max-width: 320px; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; font-size: 1rem; }
-.btn-primary { background: #3498db; color: #fff; border: none; border-radius: 4px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.9rem; }
-.btn-primary:hover { background: #2980b9; }
-.btn-danger { background: #e74c3c; color: #fff; border: none; border-radius: 4px; padding: 0.35rem 0.75rem; cursor: pointer; font-size: 0.85rem; }
-.btn-danger:disabled { background: #ccc; cursor: not-allowed; }
-.table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px #0000001a; overflow: hidden; }
-.table th { background: #f0f0f0; text-align: left; padding: 0.75rem 1rem; font-weight: 600; }
-.table td { padding: 0.75rem 1rem; border-top: 1px solid #f0f0f0; }
-.table select { padding: 0.25rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
-.loading { padding: 2rem; color: #666; text-align: center; }
-.error { color: #e74c3c; margin-bottom: 0.5rem; }
-.success { color: #27ae60; margin-top: 0.5rem; }
+.field label { display: block; font-weight: 500; margin-bottom: 0.25rem; color: var(--text); }
+.field input, .field select { width: 100%; max-width: 320px; padding: 0.5rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 1rem; background: var(--surface2); color: var(--text); }
+.field input:focus, .field select:focus, .table select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
+.btn-primary { background: var(--accent); color: #fff; border: none; border-radius: 4px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.9rem; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-danger { background: var(--danger); color: #fff; border: none; border-radius: 4px; padding: 0.35rem 0.75rem; cursor: pointer; font-size: 0.85rem; }
+.btn-danger:disabled { background: var(--danger-muted); cursor: not-allowed; color: var(--text3); }
+.table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 2px 4px var(--shadow); overflow: hidden; color: var(--text); }
+.table th { background: var(--surface2); text-align: left; padding: 0.75rem 1rem; font-weight: 600; color: var(--text); }
+.table td { padding: 0.75rem 1rem; border-top: 1px solid var(--border); color: var(--text); }
+.table select { padding: 0.25rem 0.5rem; border: 1px solid var(--border2); border-radius: 4px; background: var(--surface2); color: var(--text); }
+.loading { padding: 2rem; color: var(--text3); text-align: center; }
+.error { color: var(--danger); margin-bottom: 0.5rem; }
+.success { color: var(--success); margin-top: 0.5rem; }
 .toggle-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 2rem; }
-.hint { color: #666; font-size: 0.875rem; margin-top: 0.25rem; }
+.hint { color: var(--text3); font-size: 0.875rem; margin-top: 0.25rem; }
 .toggle { position: relative; display: inline-block; width: 48px; height: 26px; flex-shrink: 0; }
 .toggle input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; cursor: pointer; inset: 0; background: #ccc; border-radius: 26px; transition: 0.3s; }
+.slider { position: absolute; cursor: pointer; inset: 0; background: var(--border2); border-radius: 26px; transition: 0.3s; }
 .slider::before { content: ''; position: absolute; height: 18px; width: 18px; left: 4px; bottom: 4px; background: #fff; border-radius: 50%; transition: 0.3s; }
-.toggle input:checked + .slider { background: #3498db; }
+.toggle input:checked + .slider { background: var(--accent); }
 .toggle input:checked + .slider::before { transform: translateX(22px); }
 </style>

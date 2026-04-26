@@ -226,7 +226,7 @@ body:has(.login-page) .main { padding: 0; max-width: 100%; }
 .input-wrap input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(52,152,219,0.15);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 .toggle-pw {
   position: absolute;

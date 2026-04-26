@@ -23,7 +23,7 @@ function getCount(tag) {
 <style scoped>
 h1 { margin-bottom: 1.5rem; }
 .tags { display: flex; flex-wrap: wrap; gap: 0.75rem; }
-.tag { background: #95a5a6; color: white; padding: 0.5rem 1rem; border-radius: 20px; text-decoration: none; transition: background 0.2s; }
-.tag:hover { background: #7f8c8d; }
-.empty { color: #666; }
+.tag { background: var(--tag-bg); color: white; padding: 0.5rem 1rem; border-radius: 20px; text-decoration: none; transition: background 0.2s; }
+.tag:hover { background: var(--accent); }
+.empty { color: var(--text3); }
 </style>

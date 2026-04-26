@@ -393,7 +393,7 @@ watch(selectedFolderId, () => refreshFolderAssets(), { immediate: true })
 .doc-card-top h2 a:hover { color: var(--accent); }
 .meta { display: flex; gap: 0.25rem; flex-wrap: wrap; align-items: center; }
 .category { background: var(--accent); color: white; padding: 0.05rem 0.35rem; border-radius: 3px; font-size: 0.7rem; }
-.tag { background: #6c7a89; color: white; padding: 0.05rem 0.35rem; border-radius: 3px; font-size: 0.7rem; }
+.tag { background: var(--tag-bg); color: white; padding: 0.05rem 0.35rem; border-radius: 3px; font-size: 0.7rem; }
 .info-inline { font-size: 0.7rem; color: var(--text3); margin-left: auto; }
 
 /* ── Compact list view ──────────────────────────────────────────────────── */
@@ -527,8 +527,8 @@ watch(selectedFolderId, () => refreshFolderAssets(), { immediate: true })
 }
 .batch-count { font-weight: 600; font-size: 0.88rem; color: var(--text); margin-right: auto; }
 .batch-btn { padding: 0.3rem 0.7rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.82rem; color: white; }
-.batch-download { background: #27ae60; }
-.batch-move { background: #3498db; }
-.batch-delete { background: #e74c3c; }
+.batch-download { background: var(--success); }
+.batch-move { background: var(--accent); }
+.batch-delete { background: var(--danger); }
 .batch-cancel { background: var(--surface2); color: var(--text); border: 1px solid var(--border2); }
 </style>

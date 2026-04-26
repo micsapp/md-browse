@@ -285,7 +285,7 @@ async function uploadSelected() {
 
 .upload-results { margin-bottom: 1rem; max-height: 160px; overflow-y: auto; font-size: 0.83rem; }
 .result-item { padding: 0.25rem 0; }
-.result-item.ok { color: #27ae60; }
+.result-item.ok { color: var(--success); }
 .result-item.fail { color: var(--danger); }
 .result-err { opacity: 0.8; }
 

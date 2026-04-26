@@ -29,11 +29,12 @@ function formatDate(date) {
 <style scoped>
 h1 { margin-bottom: 1.5rem; }
 .documents { display: grid; gap: 1rem; }
-.doc-card { background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+.doc-card { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px var(--shadow); }
 .doc-card h2 { margin-bottom: 0.5rem; }
-.doc-card h2 a { color: #2c3e50; text-decoration: none; cursor: pointer; }
-.description { color: #666; margin-bottom: 0.5rem; }
-.info { font-size: 0.85rem; color: #999; }
-.empty { text-align: center; padding: 2rem; color: #666; }
-.back { display: inline-block; margin-top: 2rem; color: #3498db; }
+.doc-card h2 a { color: var(--text); text-decoration: none; cursor: pointer; }
+.doc-card h2 a:hover { color: var(--accent); }
+.description { color: var(--text2); margin-bottom: 0.5rem; }
+.info { font-size: 0.85rem; color: var(--text3); }
+.empty { text-align: center; padding: 2rem; color: var(--text3); }
+.back { display: inline-block; margin-top: 2rem; color: var(--accent); }
 </style>

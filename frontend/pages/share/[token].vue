@@ -103,7 +103,7 @@ onMounted(() => loadDoc())
 .meta { display: flex; gap: 1rem; color: var(--text3); font-size: 0.9rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
 .tags { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
 .tag { background: var(--surface2); color: var(--text2); border: 1px solid var(--border2); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.85rem; }
-.shared-badge { display: inline-block; background: #f39c12; color: white; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.8rem; }
+.shared-badge { display: inline-block; background: var(--warning); color: white; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.8rem; }
 .content { line-height: 1.8; color: var(--text); }
 .content :deep(h1), .content :deep(h2), .content :deep(h3) { margin: 1.5rem 0 0.5rem; color: var(--text); }
 .content :deep(p) { margin-bottom: 1rem; }

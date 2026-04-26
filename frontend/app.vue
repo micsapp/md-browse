@@ -88,6 +88,13 @@ function toggleFolders() {
   --accent: #3498db;
   --accent-hover: #2980b9;
   --danger: #e74c3c;
+  --danger-muted: #f3c6c1;
+  --success: #27ae60;
+  --warning: #f39c12;
+  --tag-bg: #6c7a89;
+  --mark-bg: #fff3cd;
+  --mark-text: #5f4700;
+  --focus-ring: rgba(52,152,219,0.15);
   --shadow: rgba(0,0,0,0.08);
   --shadow2: rgba(0,0,0,0.15);
   --header-bg: #2c3e50;
@@ -107,6 +114,13 @@ function toggleFolders() {
   --accent: #58a6ff;
   --accent-hover: #388bfd;
   --danger: #f85149;
+  --danger-muted: #6b2b2b;
+  --success: #56d364;
+  --warning: #d29922;
+  --tag-bg: #30363d;
+  --mark-bg: #6b5d1f;
+  --mark-text: #fff4b8;
+  --focus-ring: rgba(88,166,255,0.25);
   --shadow: rgba(0,0,0,0.4);
   --shadow2: rgba(0,0,0,0.6);
   --header-bg: #010409;
@@ -118,6 +132,14 @@ function toggleFolders() {
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); transition: background 0.2s, color 0.2s; }
 .app { min-height: 100vh; }
+
+input, textarea, select {
+  background: var(--surface2);
+  color: var(--text);
+  border-color: var(--border2);
+}
+input::placeholder, textarea::placeholder { color: var(--text3); }
+select option { background: var(--surface); color: var(--text); }
 
 .header {
   background: var(--header-bg);

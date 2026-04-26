@@ -30,14 +30,15 @@ const { data: results, pending } = await useAsyncData(
 
 <style scoped>
 h1 { margin-bottom: 1.5rem; }
-.loading { text-align: center; padding: 2rem; }
+.loading { text-align: center; padding: 2rem; color: var(--text3); }
 .results { display: grid; gap: 1rem; }
-.result-card { background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+.result-card { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px var(--shadow); }
 .result-card h2 { margin-bottom: 0.5rem; }
-.result-card h2 a { color: #2c3e50; text-decoration: none; cursor: pointer; }
-.snippet { color: #666; margin-bottom: 0.5rem; font-size: 0.95rem; }
-.snippet :deep(mark) { background: #fff3cd; padding: 0 2px; }
+.result-card h2 a { color: var(--text); text-decoration: none; cursor: pointer; }
+.result-card h2 a:hover { color: var(--accent); }
+.snippet { color: var(--text2); margin-bottom: 0.5rem; font-size: 0.95rem; }
+.snippet :deep(mark) { background: var(--mark-bg); color: var(--mark-text); padding: 0 2px; }
 .meta { display: flex; gap: 0.5rem; }
-.category { background: #3498db; color: white; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.85rem; }
-.empty { text-align: center; padding: 2rem; color: #666; }
+.category { background: var(--accent); color: white; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.85rem; }
+.empty { text-align: center; padding: 2rem; color: var(--text3); }
 </style>
