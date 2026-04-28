@@ -227,13 +227,13 @@ app.get('/api/health', (req, res) => {
 
 // ── Setup endpoint (creates first admin, 409 if users already exist) ──────────
 app.post('/api/setup', async (req, res) => {
-  const { username = 'admin', password } = req.body;
-  if (!password) {
-    return sendError(res, 400, 'validation_error', 'Password is required', null, req.requestId);
-  }
   const users = await readJson(USERS_FILE, {});
   if (Object.keys(users).length > 0) {
     return sendError(res, 409, 'conflict', 'Setup already completed', 'Users already exist', req.requestId);
+  }
+  const { username = 'admin', password } = req.body;
+  if (!password) {
+    return sendError(res, 400, 'validation_error', 'Password is required', null, req.requestId);
   }
   users[username] = {
     password: await bcrypt.hash(password, 10),
