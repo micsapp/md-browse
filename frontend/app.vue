@@ -1,7 +1,9 @@
 <template>
+  <VitePwaManifest />
+
   <div class="app" @click="menuOpen = false">
     <header class="header">
-      <NuxtLink to="/" class="logo">MD Browse</NuxtLink>
+      <NuxtLink to="/" class="logo">{{ config.appName }}</NuxtLink>
       <!-- Mobile hamburger -->
       <button class="hamburger" @click.stop="menuOpen = !menuOpen" aria-label="Menu">
         <span></span><span></span><span></span>
@@ -39,6 +41,15 @@
         <span class="version-tag">v{{ config.appVersion }} · {{ config.buildTime }}</span>
       </nav>
     </header>
+    <!-- PWA install banner -->
+    <div v-if="pwaInstallable" class="pwa-install-banner">
+      <span>Install <strong>{{ config.appName }}</strong> for offline access</span>
+      <div class="pwa-install-actions">
+        <button class="pwa-install-btn" @click="pwaInstall">Install</button>
+        <button class="pwa-dismiss-btn" @click="pwaDismiss">Not now</button>
+      </div>
+    </div>
+
     <main class="main">
       <NuxtPage />
     </main>
@@ -61,6 +72,17 @@ const panel = useFolderPanel()
 const uploadModal = useUploadModal()
 
 const isSharePage = computed(() => route.path.startsWith('/share/'))
+
+// PWA install prompt
+const { $pwa } = useNuxtApp()
+const pwaInstallable = computed(() => $pwa?.showInstallPrompt?.value && !$pwa?.isPWAInstalled?.value)
+
+async function pwaInstall() {
+  if ($pwa?.install) await $pwa.install()
+}
+function pwaDismiss() {
+  if ($pwa?.cancelInstall) $pwa.cancelInstall()
+}
 
 function doSearch() {
   if (searchQuery.value.trim()) {
@@ -182,6 +204,40 @@ select option { background: var(--surface); color: var(--text); }
 .version-tag { font-size: 0.7rem; color: rgba(255,255,255,0.35); letter-spacing: 0.03em; }
 
 .main { padding: 1.5rem; max-width: 1200px; margin: 0 auto; }
+
+.pwa-install-banner {
+  background: var(--accent);
+  color: white;
+  padding: 0.6rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.9rem;
+  flex-wrap: wrap;
+}
+.pwa-install-actions { display: flex; gap: 0.5rem; }
+.pwa-install-btn {
+  padding: 0.35rem 1rem;
+  background: white;
+  color: var(--accent);
+  border: none;
+  border-radius: 4px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.pwa-install-btn:hover { opacity: 0.9; }
+.pwa-dismiss-btn {
+  padding: 0.35rem 0.75rem;
+  background: transparent;
+  color: white;
+  border: 1px solid rgba(255,255,255,0.5);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.pwa-dismiss-btn:hover { background: rgba(255,255,255,0.15); }
 
 @media (max-width: 768px) {
   .header { padding: 0.75rem 1rem; position: relative; }

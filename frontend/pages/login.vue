@@ -5,7 +5,7 @@
       <!-- Logo / brand -->
       <div class="login-brand">
         <div class="login-logo">📄</div>
-        <h1 class="login-app-name">MD Browse</h1>
+        <h1 class="login-app-name">{{ config.appName }}</h1>
         <p class="login-tagline">Your markdown knowledge base</p>
       </div>
 
@@ -72,6 +72,7 @@
 <script setup>
 definePageMeta({ layout: false })
 
+const config = useRuntimeConfig().public
 const auth = useAuth()
 const router = useRouter()
 const route = useRoute()

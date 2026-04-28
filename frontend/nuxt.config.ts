@@ -2,6 +2,7 @@ const pkg = require('./package.json')
 const buildTime = new Date().toISOString().replace('T', ' ').slice(0, 16)
 const buildHash = Date.now().toString(36)
 const appVersion = `${pkg.version}-${buildHash}`
+const appName = process.env.NUXT_PUBLIC_APP_NAME || 'MD Browse'
 
 export default defineNuxtConfig({
   devtools: { enabled: true },
@@ -29,6 +30,7 @@ export default defineNuxtConfig({
       // In production this goes through nginx (same-origin, no CORS issues).
       // For local Dev set NUXT_PUBLIC_API_BASE=http://localhost:3001/api
       apiBase: process.env.NUXT_PUBLIC_API_BASE || '/api',
+      appName,
       appVersion,
       buildTime
     }
@@ -38,8 +40,8 @@ export default defineNuxtConfig({
     registerType: 'autoUpdate',
     filename: `sw-${buildHash}.js`,
     manifest: {
-      name: 'MD Browse',
-      short_name: 'MD Browse',
+      name: appName,
+      short_name: appName,
       description: 'Markdown document browser',
       theme_color: '#2c3e50',
       background_color: '#f5f5f5',

@@ -10,6 +10,7 @@ NGINX_SITES_ENABLED="/etc/nginx/sites-enabled/md-browse"
 BACKEND_PORT="${BACKEND_PORT:-3001}"
 PM2_APP_NAME="md-browse-api"
 HOSTNAME_OPT=""
+APP_NAME_OPT=""
 DEFAULT_SSL_CERT="/etc/ssl/cloudflare/tigu.cert"
 DEFAULT_SSL_KEY="/etc/ssl/cloudflare/tigu.key"
 SSL_ENABLED=false
@@ -21,6 +22,8 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --hostname) HOSTNAME_OPT="$2"; shift 2 ;;
         --hostname=*) HOSTNAME_OPT="${1#*=}"; shift ;;
+        --app-name) APP_NAME_OPT="$2"; shift 2 ;;
+        --app-name=*) APP_NAME_OPT="${1#*=}"; shift ;;
         --help|-h) cat <<'USAGE'
 Usage: deploy.sh [OPTIONS] COMMAND
 
@@ -37,6 +40,7 @@ Commands:
 
 Options:
   --hostname DOMAIN   Set nginx server_name (default: _ catch-all)
+  --app-name NAME     Set PWA app name (default: MD Browse)
   --help, -h          Show this help message
 
 Examples:
@@ -80,6 +84,14 @@ install_deps() {
 build_frontend() {
     log_info "Building frontend..."
     cd "$FRONTEND_DIR"
+    if [ -n "$APP_NAME_OPT" ]; then
+        export NUXT_PUBLIC_APP_NAME="$APP_NAME_OPT"
+    else
+        read -rp "Enter PWA app name [MD Browse]: " APP_NAME_OPT
+        APP_NAME_OPT="${APP_NAME_OPT:-MD Browse}"
+        export NUXT_PUBLIC_APP_NAME="$APP_NAME_OPT"
+    fi
+    log_info "PWA app name set to: $NUXT_PUBLIC_APP_NAME"
     npm run generate
     log_info "Frontend built at $FRONTEND_DIR/.output/public"
 }
