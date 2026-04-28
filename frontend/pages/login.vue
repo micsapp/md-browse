@@ -76,9 +76,16 @@ const auth = useAuth()
 const router = useRouter()
 const route = useRoute()
 
+// Sanitize redirect: strip any redirect that points back to login to prevent loops
+function safeRedirect() {
+  const r = route.query.redirect
+  if (!r || r.startsWith('/login')) return '/'
+  return r
+}
+
 // If already logged in, redirect away
 if (import.meta.client && auth.isLoggedIn) {
-  router.replace(route.query.redirect || '/')
+  router.replace(safeRedirect())
 }
 
 const isRegister = ref(false)
@@ -101,7 +108,7 @@ async function submit() {
     } else {
       await auth.login(form.value.username, form.value.password)
     }
-    router.push(route.query.redirect || '/')
+    router.push(safeRedirect())
   } catch (e) {
     error.value = e.data?.error || e.message || 'An error occurred. Please try again.'
   } finally {

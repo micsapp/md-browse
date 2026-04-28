@@ -6,7 +6,7 @@
     @mousedown.capture="onModalMousedown"
   >
     <!-- Header / drag handle -->
-    <div class="dv-header" @mousedown.prevent="!mobile && startDrag($event)">
+    <div class="dv-header" @mousedown.prevent="!mobile && !isFullscreen && startDrag($event)">
       <span class="dv-title">{{ doc?.title || 'Loading…' }}</span>
       <div class="dv-header-actions" @mousedown.stop>
         <button v-if="auth.user" @click="editing = !editing" class="dv-btn" :class="{ active: editing }">Edit</button>
@@ -14,6 +14,7 @@
         <button v-if="auth.user" @click="downloadDoc" class="dv-btn">⬇</button>
         <button v-if="auth.user" @click="showSharePanel = !showSharePanel" class="dv-btn">Share</button>
         <button v-if="auth.user" @click="deleteDoc" class="dv-btn dv-btn-danger">Del</button>
+        <button v-if="!mobile" @click="toggleFullscreen" class="dv-btn" :class="{ active: isFullscreen }">{{ isFullscreen ? '⊡' : '⊞' }}</button>
         <button @click="viewer.closeDoc(modal.uid)" class="dv-close">✕</button>
       </div>
     </div>
@@ -96,8 +97,8 @@
       <div v-else class="dv-content" v-html="renderedContent" />
     </div>
 
-    <!-- Resize handles (desktop only) -->
-    <template v-if="!mobile">
+    <!-- Resize handles (desktop only, not in fullscreen) -->
+    <template v-if="!mobile && !isFullscreen">
       <div class="dv-resize-e"  @mousedown.prevent.stop="startResize('e', $event)"></div>
       <div class="dv-resize-s"  @mousedown.prevent.stop="startResize('s', $event)"></div>
       <div class="dv-resize-se" @mousedown.prevent.stop="startResize('se', $event)"></div>
@@ -120,9 +121,30 @@ const api = useApi()
 const auth = useAuth()
 const router = useRouter()
 
+// ── Fullscreen ────────────────────────────────────────────────────────────────
+const isFullscreen = ref(false)
+const savedBounds = ref(null)
+
+function toggleFullscreen() {
+  if (isFullscreen.value) {
+    // Restore previous bounds
+    if (savedBounds.value) {
+      viewer.updateModal(props.modal.uid, savedBounds.value)
+      savedBounds.value = null
+    }
+    isFullscreen.value = false
+  } else {
+    // Save current bounds and go fullscreen
+    savedBounds.value = { x: props.modal.x, y: props.modal.y, width: props.modal.width, height: props.modal.height }
+    viewer.updateModal(props.modal.uid, { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight })
+    isFullscreen.value = true
+  }
+}
+
 // ── Style ─────────────────────────────────────────────────────────────────────
 const modalStyle = computed(() => {
   if (props.mobile) return { zIndex: props.modal.zIndex }
+  if (isFullscreen.value) return { left: 0, top: 0, width: '100vw', height: '100dvh', zIndex: props.modal.zIndex, borderRadius: 0 }
   return {
     left: props.modal.x + 'px',
     top: props.modal.y + 'px',

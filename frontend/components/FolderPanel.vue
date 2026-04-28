@@ -117,15 +117,25 @@ onUnmounted(() => {
 })
 
 // ── Data ──────────────────────────────────────────────────────────────────────
+const auth = useAuth()
+
 const { data: allFolders, refresh: refreshFolders } = await useAsyncData('fp-folders', async () => {
-  if (import.meta.server) return []
+  if (import.meta.server || !auth.isLoggedIn) return []
   try { return await api.getFolders() } catch { return [] }
 }, { default: () => [], server: false })
 
 const { data: allDocuments, refresh: refreshAllDocs } = await useAsyncData('fp-all-docs', async () => {
-  if (import.meta.server) return []
+  if (import.meta.server || !auth.isLoggedIn) return []
   try { return await api.getDocuments({}) } catch { return [] }
 }, { default: () => [], server: false })
+
+// Refresh data when auth state changes (e.g., after login)
+watch(() => auth.isLoggedIn, async (loggedIn) => {
+  if (loggedIn) {
+    await refreshFolders()
+    await refreshAllDocs()
+  }
+})
 
 const flatFolders = computed(() => {
   function flatten(parentId, depth) {

@@ -205,13 +205,13 @@ async function batchDownloadSelected() {
 
 // Folders
 const { data: allFolders, refresh: refreshFolders } = await useAsyncData('folders', async () => {
-  if (import.meta.server) return []
+  if (import.meta.server || !auth.isLoggedIn) return []
   try { return await api.getFolders() } catch { return [] }
 }, { default: () => [], server: false })
 
 // Documents filtered by selected folder
 const { data: documents, refresh: refreshDocs } = await useAsyncData('documents', async () => {
-  if (import.meta.server) return []
+  if (import.meta.server || !auth.isLoggedIn) return []
   try {
     const params = {}
     if (selectedFolderId.value === null) params.folder_id = 'root'
@@ -222,9 +222,18 @@ const { data: documents, refresh: refreshDocs } = await useAsyncData('documents'
 
 // All documents (for folder membership check & folder panel)
 const { data: allDocuments, refresh: refreshAllDocs } = await useAsyncData('all-documents', async () => {
-  if (import.meta.server) return []
+  if (import.meta.server || !auth.isLoggedIn) return []
   try { return await api.getDocuments({}) } catch { return [] }
 }, { default: () => [], server: false })
+
+// Refresh all data when auth state changes (e.g., after login)
+watch(() => auth.isLoggedIn, async (loggedIn) => {
+  if (loggedIn) {
+    await refreshFolders()
+    await refreshDocs()
+    await refreshAllDocs()
+  }
+})
 
 const flatFolders = computed(() => {
   function flatten(parentId, depth) {
