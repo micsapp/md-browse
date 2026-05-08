@@ -4,6 +4,7 @@ set -e
 PROJECT_DIR="/home/mli/md-browse"
 BACKEND_DIR="$PROJECT_DIR/backend"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
+CLI_DIR="$PROJECT_DIR/cli"
 NGINX_CONF="$PROJECT_DIR/nginx/md-browse.conf"
 NGINX_SITES_AVAILABLE="/etc/nginx/sites-available/md-browse"
 NGINX_SITES_ENABLED="/etc/nginx/sites-enabled/md-browse"
@@ -28,9 +29,10 @@ while [[ $# -gt 0 ]]; do
 Usage: deploy.sh [OPTIONS] COMMAND
 
 Commands:
-  deploy      Full deployment (install, build, backend, nginx, health check)
+  deploy      Full deployment (install, build, cli, backend, nginx, health check)
   install     Install backend & frontend npm dependencies
   build       Build frontend (nuxt generate)
+  cli         Build md_cli standalone binary if not already built (force with --force)
   backend     Deploy/restart backend via PM2
   nginx       Setup nginx config and reload
   status      Show PM2 process list and URLs
@@ -94,6 +96,36 @@ build_frontend() {
     log_info "PWA app name set to: $NUXT_PUBLIC_APP_NAME"
     npm run generate
     log_info "Frontend built at $FRONTEND_DIR/.output/public"
+}
+
+build_cli() {
+    local force="${1:-}"
+    local target_bin="$CLI_DIR/dist/md_cli"
+
+    if [ ! -d "$CLI_DIR" ]; then
+        log_warn "CLI directory not found at $CLI_DIR — skipping md_cli build"
+        return 0
+    fi
+
+    if [ -x "$target_bin" ] && [ "$force" != "--force" ]; then
+        log_info "md_cli binary already built at $target_bin (use 'cli --force' to rebuild)"
+        return 0
+    fi
+
+    log_info "Building md_cli standalone binary..."
+    cd "$CLI_DIR"
+
+    if [ ! -d node_modules ] || [ ! -x node_modules/.bin/pkg ]; then
+        log_info "Installing CLI build dependencies (@yao-pkg/pkg)..."
+        npm install
+    fi
+
+    if npm run build; then
+        log_info "md_cli binary built at $target_bin ($(du -h "$target_bin" | cut -f1))"
+    else
+        log_warn "md_cli build failed (non-fatal — site deployment continues)"
+        return 0
+    fi
 }
 
 deploy_backend() {
@@ -335,6 +367,9 @@ case "${1:-deploy}" in
     build)
         build_frontend
         ;;
+    cli)
+        build_cli "${2:-}"
+        ;;
     backend)
         deploy_backend
         ;;
@@ -362,6 +397,7 @@ case "${1:-deploy}" in
         
         install_deps
         build_frontend
+        build_cli
         deploy_backend
         setup_nginx
         health_check

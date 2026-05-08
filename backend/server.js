@@ -108,6 +108,11 @@ function sendError(res, status, code, message, hint, requestId) {
   });
 }
 
+// Collapse blank lines inside <svg> blocks so marked doesn't break them into <p> tags
+function fixSvgBlocks(markdown) {
+  return markdown.replace(/<svg[\s\S]*?<\/svg>/gi, m => m.replace(/\n\s*\n/g, '\n'));
+}
+
 function renderMarkdown(md, docId) {
   const renderer = new marked.Renderer();
   const origImage = renderer.image.bind(renderer);
@@ -117,7 +122,7 @@ function renderMarkdown(md, docId) {
     }
     return origImage(token);
   };
-  return marked(md, { renderer });
+  return marked(fixSvgBlocks(md), { renderer });
 }
 
 async function appendAuditLog(actorType, actorId, action, resourceType, resourceId, metadata) {
@@ -191,6 +196,15 @@ function requireScope(scope) {
     }
     next();
   };
+}
+
+// The "effective owner" is the human user behind the request.
+// For JWT auth this is the username; for agent-token auth it's the user
+// that minted the token. Used so resources owned by a user remain
+// addressable whether the request comes from the web UI or CLI.
+function effectiveOwner(req) {
+  if (req.actorType === 'agent') return req.agent?.created_by || req.actorId;
+  return req.actorId;
 }
 
 // Admin middleware — requires admin role in JWT
@@ -359,7 +373,7 @@ app.get('/api/v1/documents', agentTokenMiddleware, requireScope('documents:read'
 });
 
 // Upload document
-app.post('/api/v1/documents/upload', authMiddleware, checkIdempotency, upload.single('file'), async (req, res) => {
+app.post('/api/v1/documents/upload', agentTokenMiddleware, requireScope('documents:write'), checkIdempotency, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return sendError(res, 400, 'validation_error', 'No file uploaded', 'Attach a .md file as form field "file"', req.requestId);
@@ -428,7 +442,7 @@ app.post('/api/v1/documents/upload', authMiddleware, checkIdempotency, upload.si
     }];
     await writeJson(VERSIONS_FILE, versions);
 
-    await appendAuditLog('user', req.actorId, 'document.create', 'document', id, { title });
+    await appendAuditLog(req.actorType, req.actorId, 'document.create', 'document', id, { title });
 
     const doc = { ...buildDocSummary(id, metadata[id]), content_md: body, content_html: renderMarkdown(body, id) };
     await saveIdempotencyResult(req.idempotencyKey, { documents: [doc] });
@@ -569,7 +583,7 @@ app.put('/api/v1/documents/:id', agentTokenMiddleware, requireScope('documents:w
 });
 
 // Delete document (soft delete)
-app.delete('/api/v1/documents/:id', authMiddleware, async (req, res) => {
+app.delete('/api/v1/documents/:id', agentTokenMiddleware, requireScope('documents:write'), async (req, res) => {
   try {
     const { id } = req.params;
     const metadata = await readJson(META_FILE, {});
@@ -578,7 +592,7 @@ app.delete('/api/v1/documents/:id', authMiddleware, async (req, res) => {
     }
     metadata[id].deleted_at = new Date().toISOString();
     await writeJson(META_FILE, metadata);
-    await appendAuditLog('user', req.actorId, 'document.delete', 'document', id, {});
+    await appendAuditLog(req.actorType, req.actorId, 'document.delete', 'document', id, {});
     res.status(204).send();
   } catch (err) {
     sendError(res, 500, 'internal_error', err.message, null, req.requestId);
@@ -610,7 +624,7 @@ app.get('/api/v1/documents/:id/versions', agentTokenMiddleware, requireScope('ve
 });
 
 // Rollback
-app.post('/api/v1/documents/:id/rollback', authMiddleware, checkIdempotency, async (req, res) => {
+app.post('/api/v1/documents/:id/rollback', agentTokenMiddleware, requireScope('documents:write'), checkIdempotency, async (req, res) => {
   try {
     const { id } = req.params;
     const { target_version, change_note } = req.body;
@@ -659,7 +673,7 @@ app.post('/api/v1/documents/:id/rollback', authMiddleware, checkIdempotency, asy
     };
     await writeJson(META_FILE, metadata);
 
-    await appendAuditLog('user', req.actorId, 'document.rollback', 'document', id, { target_version, new_version: newVersionNumber });
+    await appendAuditLog(req.actorType, req.actorId, 'document.rollback', 'document', id, { target_version, new_version: newVersionNumber });
 
     const { content: body } = matter(targetVer.content_md);
     const doc = {
@@ -823,7 +837,8 @@ app.post('/api/v1/agents/tokens', authMiddleware, async (req, res) => {
       token_hash: tokenHash,
       expires_at: expires_at || null,
       created_at: now,
-      last_used_at: null
+      last_used_at: null,
+      created_by: req.actorId
     };
     await writeJson(AGENT_TOKENS_FILE, tokens);
     await appendAuditLog('user', req.actorId, 'agent_token.create', 'agent_token', id, { name, scopes });
@@ -837,8 +852,46 @@ app.post('/api/v1/agents/tokens', authMiddleware, async (req, res) => {
       expires_at: expires_at || null,
       created_at: now,
       last_used_at: null,
+      created_by: req.actorId,
       secret_token: secretToken
     });
+  } catch (err) {
+    sendError(res, 500, 'internal_error', err.message, null, req.requestId);
+  }
+});
+
+// List agent tokens (current user's tokens; admins see all)
+app.get('/api/v1/agents/tokens', authMiddleware, async (req, res) => {
+  try {
+    const tokens = await readJson(AGENT_TOKENS_FILE, {});
+    const isAdmin = req.user?.role === 'admin';
+    const list = Object.values(tokens)
+      .filter(t => isAdmin || t.created_by === req.actorId)
+      .map(({ token_hash, ...safe }) => safe)
+      .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    res.json({ data: list });
+  } catch (err) {
+    sendError(res, 500, 'internal_error', err.message, null, req.requestId);
+  }
+});
+
+// Revoke (delete) agent token
+app.delete('/api/v1/agents/tokens/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const tokens = await readJson(AGENT_TOKENS_FILE, {});
+    const tok = tokens[id];
+    if (!tok) {
+      return sendError(res, 404, 'not_found', 'Token not found', null, req.requestId);
+    }
+    const isAdmin = req.user?.role === 'admin';
+    if (!isAdmin && tok.created_by !== req.actorId) {
+      return sendError(res, 403, 'forbidden', 'Cannot revoke another user\'s token', null, req.requestId);
+    }
+    delete tokens[id];
+    await writeJson(AGENT_TOKENS_FILE, tokens);
+    await appendAuditLog('user', req.actorId, 'agent_token.revoke', 'agent_token', id, { name: tok.name });
+    res.status(204).send();
   } catch (err) {
     sendError(res, 500, 'internal_error', err.message, null, req.requestId);
   }
@@ -1281,7 +1334,7 @@ app.post('/api/v1/documents/batch/download', agentTokenMiddleware, requireScope(
 });
 
 // ── Share document ───────────────────────────────────────────────────────────
-app.post('/api/v1/documents/:id/share', authMiddleware, async (req, res) => {
+app.post('/api/v1/documents/:id/share', agentTokenMiddleware, requireScope('documents:write'), async (req, res) => {
   try {
     const { id } = req.params;
     const { access_code } = req.body;
@@ -1297,40 +1350,81 @@ app.post('/api/v1/documents/:id/share', authMiddleware, async (req, res) => {
       document_id: id,
       token,
       access_code: access_code || null,
-      created_by: req.actorId,
+      created_by: effectiveOwner(req),
       created_at: new Date().toISOString()
     };
     await writeJson(SHARES_FILE, shares);
-    await appendAuditLog('user', req.actorId, 'share.create', 'share', shareId, { document_id: id, has_code: !!access_code });
+    await appendAuditLog(req.actorType, req.actorId, 'share.create', 'share', shareId, { document_id: id, has_code: !!access_code });
     res.status(201).json({ id: shareId, token, has_access_code: !!access_code });
   } catch (err) {
     sendError(res, 500, 'internal_error', err.message, null, req.requestId);
   }
 });
 
-app.get('/api/v1/documents/:id/shares', authMiddleware, async (req, res) => {
+app.get('/api/v1/documents/:id/shares', agentTokenMiddleware, requireScope('documents:read'), async (req, res) => {
   try {
     const { id } = req.params;
     const shares = await readJson(SHARES_FILE, {});
+    const metadata = await readJson(META_FILE, {});
+    const title = metadata[id]?.title || null;
     const docShares = Object.values(shares)
       .filter(s => s.document_id === id)
-      .map(s => ({ id: s.id, token: s.token, has_access_code: !!s.access_code, created_by: s.created_by, created_at: s.created_at }));
+      .map(s => ({
+        id: s.id,
+        document_id: s.document_id,
+        document_title: title,
+        token: s.token,
+        has_access_code: !!s.access_code,
+        created_by: s.created_by,
+        created_at: s.created_at
+      }));
     res.json(docShares);
   } catch (err) {
     sendError(res, 500, 'internal_error', err.message, null, req.requestId);
   }
 });
 
-app.delete('/api/v1/shares/:shareId', authMiddleware, async (req, res) => {
+// List all share links for the current user (admin sees all)
+app.get('/api/v1/shares', agentTokenMiddleware, requireScope('documents:read'), async (req, res) => {
+  try {
+    const shares = await readJson(SHARES_FILE, {});
+    const metadata = await readJson(META_FILE, {});
+    const owner = effectiveOwner(req);
+    const isAdmin = req.user?.role === 'admin';
+    const list = Object.values(shares)
+      .filter(s => isAdmin || s.created_by === owner)
+      .map(s => ({
+        id: s.id,
+        document_id: s.document_id,
+        document_title: metadata[s.document_id]?.title || null,
+        document_deleted: !!metadata[s.document_id]?.deleted_at,
+        token: s.token,
+        has_access_code: !!s.access_code,
+        created_by: s.created_by,
+        created_at: s.created_at
+      }))
+      .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    res.json({ data: list });
+  } catch (err) {
+    sendError(res, 500, 'internal_error', err.message, null, req.requestId);
+  }
+});
+
+app.delete('/api/v1/shares/:shareId', agentTokenMiddleware, requireScope('documents:write'), async (req, res) => {
   try {
     const { shareId } = req.params;
     const shares = await readJson(SHARES_FILE, {});
-    if (!shares[shareId]) {
+    const share = shares[shareId];
+    if (!share) {
       return sendError(res, 404, 'not_found', 'Share not found', null, req.requestId);
+    }
+    const isAdmin = req.user?.role === 'admin';
+    if (!isAdmin && share.created_by !== effectiveOwner(req)) {
+      return sendError(res, 403, 'forbidden', 'Cannot revoke another user\'s share', null, req.requestId);
     }
     delete shares[shareId];
     await writeJson(SHARES_FILE, shares);
-    await appendAuditLog('user', req.actorId, 'share.delete', 'share', shareId, {});
+    await appendAuditLog(req.actorType, req.actorId, 'share.delete', 'share', shareId, {});
     res.status(204).send();
   } catch (err) {
     sendError(res, 500, 'internal_error', err.message, null, req.requestId);
