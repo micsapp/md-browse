@@ -270,9 +270,14 @@ watch(showVersions, async (val) => {
 
 watch(showSharePanel, (val) => { if (val) loadShares() })
 
+// Collapse blank lines inside <svg> blocks so marked doesn't break them into <p> tags
+function fixSvgBlocks(md) {
+  return md.replace(/<svg[\s\S]*?<\/svg>/gi, m => m.replace(/\n\s*\n/g, '\n'))
+}
+
 const renderedContent = computed(() => {
   if (!doc.value) return ''
-  let html = doc.value.content_html || marked(doc.value.content_md || '')
+  let html = doc.value.content_html || marked(fixSvgBlocks(doc.value.content_md || ''))
   html = html.replace(/(<img\s[^>]*src=")(?!https?:|data:|\/)(.*?)(")/g,
     `$1/api/v1/documents/${props.modal.docId}/assets/$2$3`)
   return DOMPurify.sanitize(html)
@@ -280,7 +285,7 @@ const renderedContent = computed(() => {
 
 const editPreviewHtml = computed(() => {
   if (!editForm.value.content_md) return ''
-  let html = marked(editForm.value.content_md)
+  let html = marked(fixSvgBlocks(editForm.value.content_md))
   html = html.replace(/(<img\s[^>]*src=")(?!https?:|data:|\/)(.*?)(")/g,
     `$1/api/v1/documents/${props.modal.docId}/assets/$2$3`)
   return DOMPurify.sanitize(html)

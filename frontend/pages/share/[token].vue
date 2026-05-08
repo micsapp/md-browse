@@ -56,9 +56,14 @@ if (import.meta.client) {
   })
 }
 
+// Collapse blank lines inside <svg> blocks so marked doesn't break them into <p> tags
+function fixSvgBlocks(md) {
+  return md.replace(/<svg[\s\S]*?<\/svg>/gi, m => m.replace(/\n\s*\n/g, '\n'))
+}
+
 const renderedContent = computed(() => {
   if (!doc.value) return ''
-  let html = doc.value.content_html || marked(doc.value.content_md || '')
+  let html = doc.value.content_html || marked(fixSvgBlocks(doc.value.content_md || ''))
   // Rewrite relative image srcs to asset API (doc.id comes from backend response)
   if (doc.value.id) {
     html = html.replace(/(<img\s[^>]*src=")(?!https?:|data:|\/)(.*?)(")/g,
