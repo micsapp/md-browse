@@ -33,17 +33,38 @@ node path/to/cli/bin/md_cli.js list
 
 ## Configure
 
-Create a `.env` file in your working directory (or any parent directory — the
-CLI walks up to find one). See `.env.example`:
+The fastest way to authenticate is `md_cli login` — sign in with your
+md-browse username and password and the CLI mints a long-lived token for
+you (saved to `~/.md-browse/auth.json`, mode 0600):
+
+```sh
+md_cli login --url https://md.example.com
+# Username: alice
+# Password: ********
+# logged in as alice
+# saved to  ~/.md-browse/auth.json
+# token:    agt_a1b2…  (name: md_cli@laptop 2026-05-09)
+# scopes:   documents:read, documents:write, versions:read, search:read, audit:read
+```
+
+After the first run, the URL is remembered too — subsequent `md_cli login`
+calls don't need `--url`. Run `md_cli help login` for all flags
+(`--username`, `--password`, `--name`, `--scopes`, `--token`, …).
+
+### Alternative: hand-managed token via .env
+
+If you'd rather paste a token yourself, create a `.env` file in your
+working directory (or any parent — the CLI walks up to find one). See
+`.env.example`:
 
 ```
 MD_BROWSE_TOKEN=agt_xxxxxxxxxxxxxxxx
 MD_BROWSE_URL=https://md.example.com
 ```
 
-To get a token, log into your md-browse site and open the **Tokens** page
-(top nav). Create a token with the scopes you need — the full secret is shown
-only once. Paste it into `.env` as `MD_BROWSE_TOKEN`.
+Tokens are managed at the **Tokens** page on your md-browse site (top
+nav). Create a token with the scopes you need — the full secret is shown
+only once.
 
 Recommended scopes for a full-feature CLI session:
 
@@ -76,9 +97,24 @@ md_cli share create <id>         Create a public share link
 md_cli share list <id>           List share links for a doc
 md_cli share delete <share-id>   Revoke a share link
 md_cli share open <token>        Fetch a shared doc (no auth needed)
-md_cli whoami                    Show current config
+md_cli login                     Log in with username/password (mints a CLI token)
+md_cli logout                    Forget the saved token
+md_cli whoami                    Show current config and token source
 md_cli help <command>            Detailed help
 ```
+
+### Where the token comes from
+
+`md_cli` resolves the token in this order (first match wins):
+
+1. `--token <t>` flag
+2. `MD_BROWSE_TOKEN` env var
+3. `.env` file (cwd or any parent)
+4. `~/.md-browse/auth.json` (written by `md_cli login`)
+
+`.env` still works exactly as before — `login` is a convenience for machines
+where editing `.env` is awkward (e.g. shared dev boxes, ephemeral envs).
+`md_cli whoami` prints which source the active token came from.
 
 Add `--json` to most commands to get machine-readable output.
 

@@ -1,6 +1,8 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
-const { loadConfig } = require('./config');
+const readline = require('readline');
+const { loadConfig, writeAuthFile, clearAuthFile, normalizeBaseUrl, AUTH_FILE } = require('./config');
 const { buildClient, ApiError } = require('./api');
 const { parseArgs } = require('./args');
 
@@ -23,6 +25,8 @@ Commands:
   download <id>              Download a single document
   download-batch <ids>       Download many docs as a zip (comma-separated ids)
   share <subcommand>         Manage public share links (create / list / delete / open)
+  login                      Log in with username/password (mints a CLI token)
+  logout                     Forget the saved token
   whoami                     Show which token/url is in use
   help [command]             Show help for a command
   version                    Print CLI version
@@ -123,7 +127,47 @@ Options:
 `,
   whoami: `md_cli whoami
 
-Prints the configured base URL, env file path, and token prefix.
+Prints the configured base URL, env file path, saved auth path, and which
+source the active token came from (flag / env / env-file / saved).
+`,
+  login: `md_cli login [options]
+
+Logs in with your md-browse username/password and saves a CLI token to
+~/.md-browse/auth.json (mode 0600). Under the hood: POST /api/auth/login
+to get a session JWT, then POST /api/v1/agents/tokens to mint a long-lived
+agent token. Existing commands keep working using that token.
+
+Options:
+  --username <name>      Login username (otherwise prompted)
+  --password <pw>        Login password (otherwise prompted, hidden)
+  --url <baseurl>        Base URL (defaults to MD_BROWSE_URL or the saved
+                         one). Accepts http(s)://host or http(s)://host/api
+                         — the /api suffix is normalized.
+  --name <text>          Name for the minted token (default:
+                         "md_cli@<hostname> YYYY-MM-DD")
+  --scopes a,b,c         Comma-separated scopes (default: all standard).
+                         Valid: documents:read, documents:write,
+                         versions:read, search:read, audit:read
+
+Already have an agent token? Skip the username/password flow:
+  --token <agt_…>        Save this token directly (validated against
+                         /v1/documents unless --no-validate is given)
+  --no-validate          Skip the validation request when using --token
+
+Each login mints a new agent token. Manage or revoke old ones at /tokens
+on your md-browse site.
+
+Token resolution priority (highest first):
+  1. --token flag (on any command)
+  2. MD_BROWSE_TOKEN env var
+  3. .env file (cwd or any parent)
+  4. ~/.md-browse/auth.json (saved by this command)
+
+So .env still wins over a saved login — the saved file is a fallback.
+`,
+  logout: `md_cli logout
+
+Removes ~/.md-browse/auth.json. Does not touch any .env files.
 `,
   share: `md_cli share <subcommand>
 
@@ -406,9 +450,212 @@ async function cmdShare(rest) {
 async function cmdWhoami(rest) {
   const f = parseArgs(rest);
   const { cfg } = buildContext(f);
-  out(`base url:  ${cfg.baseUrl}`);
-  out(`env file:  ${cfg.envFilePath || '(none found)'}`);
-  out(`token:     ${cfg.token ? cfg.token.slice(0, 8) + '…' : '(not set)'}`);
+  // buildContext applies --token / --url overrides; reflect that in source.
+  let source = cfg.tokenSource || 'none';
+  if (f.token) source = 'flag';
+  out(`base url:   ${cfg.baseUrl}`);
+  out(`env file:   ${cfg.envFilePath || '(none found)'}`);
+  out(`auth file:  ${AUTH_FILE}`);
+  out(`token src:  ${source}`);
+  out(`token:      ${cfg.token ? cfg.token.slice(0, 8) + '…' : '(not set)'}`);
+}
+
+// Visible-input line prompt — used for usernames, etc. Relies on the
+// terminal's cooked-mode echo (we don't toggle raw mode here).
+function promptLine(question) {
+  return new Promise((resolve, reject) => {
+    process.stdout.write(question);
+    const stdin = process.stdin;
+    if (!stdin.isTTY) {
+      let buf = '';
+      stdin.on('data', (chunk) => { buf += chunk.toString(); });
+      stdin.on('end', () => resolve((buf.split(/\r?\n/)[0] || '')));
+      stdin.on('error', reject);
+      return;
+    }
+    stdin.resume();
+    let buf = '';
+    const onData = (data) => {
+      const s = data.toString('utf8');
+      const nl = s.indexOf('\n');
+      if (nl >= 0) {
+        buf += s.slice(0, nl).replace(/\r$/, '');
+        stdin.pause();
+        stdin.removeListener('data', onData);
+        resolve(buf);
+        return;
+      }
+      buf += s;
+    };
+    stdin.on('data', onData);
+  });
+}
+
+// Hidden-input prompt — used for tokens.
+function promptHidden(question) {
+  return new Promise((resolve, reject) => {
+    process.stdout.write(question);
+    const stdin = process.stdin;
+    if (!stdin.isTTY) {
+      // No TTY (e.g., piped). Fall back to one-shot read.
+      let buf = '';
+      stdin.on('data', (chunk) => { buf += chunk.toString(); });
+      stdin.on('end', () => resolve(buf.replace(/[\r\n]+$/, '')));
+      stdin.on('error', reject);
+      return;
+    }
+    stdin.setRawMode(true);
+    stdin.resume();
+    let buf = '';
+    const onData = (data) => {
+      const s = data.toString('utf8');
+      for (const ch of s) {
+        const code = ch.charCodeAt(0);
+        if (ch === '\n' || ch === '\r') {
+          stdin.setRawMode(false);
+          stdin.pause();
+          stdin.removeListener('data', onData);
+          process.stdout.write('\n');
+          resolve(buf);
+          return;
+        }
+        if (code === 3) { // Ctrl-C
+          stdin.setRawMode(false);
+          stdin.pause();
+          process.stdout.write('\n');
+          reject(new Error('aborted'));
+          return;
+        }
+        if (code === 8 || code === 127) { // Backspace
+          buf = buf.slice(0, -1);
+        } else {
+          buf += ch;
+        }
+      }
+    };
+    stdin.on('data', onData);
+  });
+}
+
+function warnIfShadowed(cfgPre) {
+  if (process.env.MD_BROWSE_TOKEN) {
+    process.stderr.write(
+      `\nwarning: MD_BROWSE_TOKEN is set in your shell environment — it takes\n`
+      + `         priority over the saved token. Unset it (\`unset MD_BROWSE_TOKEN\`)\n`
+      + `         or the saved token won't be used.\n`
+    );
+  } else if (cfgPre.tokenSource === 'env-file' && cfgPre.envFilePath) {
+    process.stderr.write(
+      `\nwarning: MD_BROWSE_TOKEN is set in ${cfgPre.envFilePath} — it takes priority\n`
+      + `         over the saved token. Remove it from .env or the saved token\n`
+      + `         won't be used. Run \`md_cli whoami\` to see which is active.\n`
+    );
+  }
+}
+
+const DEFAULT_TOKEN_SCOPES = [
+  'documents:read', 'documents:write', 'versions:read', 'search:read', 'audit:read'
+];
+
+async function cmdLogin(rest) {
+  const f = parseArgs(rest, { boolFlags: ['no-validate'] });
+  const cfgPre = loadConfig({ envFile: f['env-file'] });
+  const baseUrl = normalizeBaseUrl(f.url || cfgPre.baseUrl);
+
+  // ── Path 1: --token escape hatch (save an existing agt_ token directly).
+  if (f.token) {
+    const token = f.token;
+    if (!f['no-validate']) {
+      const api = buildClient({ token, baseUrl });
+      try {
+        await api.listDocuments({ page_size: 1 });
+      } catch (err) {
+        const msg = err instanceof ApiError ? `${err.message} (HTTP ${err.status})` : (err.message || String(err));
+        throw new Error(`token validation failed: ${msg}`);
+      }
+    }
+    writeAuthFile({ token, baseUrl, saved_at: new Date().toISOString() });
+    out(`saved to  ${AUTH_FILE}`);
+    out(`base url: ${baseUrl}`);
+    out(`token:    ${token.slice(0, 8)}…`);
+    warnIfShadowed(cfgPre);
+    return;
+  }
+
+  // ── Path 2 (default): username/password → mint an agent token.
+  let username = f.username || f.user;
+  if (!username) username = (await promptLine('Username: ')).trim();
+  if (!username) throw new Error('login requires a username (use --username or type at the prompt)');
+
+  // Don't trim password — leading/trailing whitespace may be intentional.
+  const password = f.password !== undefined ? f.password : await promptHidden('Password: ');
+  if (!password) throw new Error('password is required');
+
+  // 1) Hit /api/auth/login for a session JWT.
+  let loginRes;
+  try {
+    loginRes = await fetch(`${baseUrl}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+  } catch (err) {
+    throw new Error(`could not reach ${baseUrl}/auth/login: ${err.message}`);
+  }
+  if (!loginRes.ok) {
+    const text = await loginRes.text().catch(() => '');
+    let detail = text;
+    try { detail = JSON.parse(text)?.error?.message || text; } catch {}
+    throw new Error(`login failed (HTTP ${loginRes.status}): ${detail || 'check username/password'}`);
+  }
+  const loginBody = await loginRes.json();
+  const jwt = loginBody.token;
+  if (!jwt) throw new Error('login response missing token');
+
+  // 2) Mint a long-lived agent token using the JWT.
+  const tokenName = f.name || `md_cli@${os.hostname()} ${new Date().toISOString().slice(0, 10)}`;
+  const scopes = f.scopes
+    ? String(f.scopes).split(',').map(s => s.trim()).filter(Boolean)
+    : DEFAULT_TOKEN_SCOPES;
+
+  let mintRes;
+  try {
+    mintRes = await fetch(`${baseUrl}/v1/agents/tokens`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+      body: JSON.stringify({ name: tokenName, scopes })
+    });
+  } catch (err) {
+    throw new Error(`could not reach ${baseUrl}/v1/agents/tokens: ${err.message}`);
+  }
+  if (!mintRes.ok) {
+    const text = await mintRes.text().catch(() => '');
+    let detail = text;
+    try { detail = JSON.parse(text)?.error?.message || text; } catch {}
+    throw new Error(`failed to mint CLI token (HTTP ${mintRes.status}): ${detail}`);
+  }
+  const minted = await mintRes.json();
+  const secretToken = minted.secret_token;
+  if (!secretToken) throw new Error('token creation response missing secret_token');
+
+  writeAuthFile({
+    token: secretToken,
+    baseUrl,
+    username,
+    token_name: tokenName,
+    saved_at: new Date().toISOString()
+  });
+  out(`logged in as ${username}`);
+  out(`saved to  ${AUTH_FILE}`);
+  out(`base url: ${baseUrl}`);
+  out(`token:    ${secretToken.slice(0, 8)}…  (name: ${tokenName})`);
+  out(`scopes:   ${scopes.join(', ')}`);
+  warnIfShadowed(cfgPre);
+}
+
+async function cmdLogout() {
+  clearAuthFile();
+  out(`removed ${AUTH_FILE}`);
 }
 
 // ── Dispatch ─────────────────────────────────────────────────────────────────
@@ -426,6 +673,8 @@ const COMMANDS = {
   download: cmdDownload,
   'download-batch': cmdDownloadBatch,
   share: cmdShare,
+  login: cmdLogin,
+  logout: cmdLogout,
   whoami: cmdWhoami
 };
 

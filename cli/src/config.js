@@ -1,4 +1,5 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 // ── Minimal .env parser (no dotenv dependency) ─────────────────────────────
@@ -47,25 +48,71 @@ function findEnvFile(startDir) {
   }
 }
 
+// ── Persisted auth state (~/.md-browse/auth.json) ──────────────────────────
+const AUTH_DIR = path.join(os.homedir(), '.md-browse');
+const AUTH_FILE = path.join(AUTH_DIR, 'auth.json');
+
+function readAuthFile() {
+  try { return JSON.parse(fs.readFileSync(AUTH_FILE, 'utf8')); } catch { return null; }
+}
+
+function writeAuthFile(state) {
+  fs.mkdirSync(AUTH_DIR, { recursive: true });
+  fs.writeFileSync(AUTH_FILE, JSON.stringify(state, null, 2), { mode: 0o600 });
+}
+
+function clearAuthFile() {
+  try { fs.unlinkSync(AUTH_FILE); } catch {}
+}
+
+function normalizeBaseUrl(u) {
+  let out = String(u).replace(/\/+$/, '');
+  if (!/\/api$/.test(out)) out = `${out}/api`;
+  return out;
+}
+
 function loadConfig({ envFile } = {}) {
-  const fileEnv = envFile
-    ? loadEnvFile(path.resolve(envFile))
-    : (findEnvFile(process.cwd()) ? loadEnvFile(findEnvFile(process.cwd())) : {});
-
+  const envPath = envFile
+    ? path.resolve(envFile)
+    : findEnvFile(process.cwd());
+  const fileEnv = envPath ? loadEnvFile(envPath) : {};
+  // Note: process.env wins over .env file; .env wins over saved file.
   const merged = { ...fileEnv, ...process.env };
+  const saved = readAuthFile();
 
-  let baseUrl = merged.MD_BROWSE_URL || 'http://localhost/api';
-  baseUrl = baseUrl.replace(/\/+$/, '');
-  if (!/\/api$/.test(baseUrl)) {
-    // Allow MD_BROWSE_URL=https://md.example.com → append /api
-    baseUrl = `${baseUrl}/api`;
+  // Resolve token with explicit source tracking so `whoami` can explain.
+  let token = '';
+  let tokenSource = 'none';
+  if (process.env.MD_BROWSE_TOKEN) {
+    token = process.env.MD_BROWSE_TOKEN;
+    tokenSource = 'env';
+  } else if (fileEnv.MD_BROWSE_TOKEN) {
+    token = fileEnv.MD_BROWSE_TOKEN;
+    tokenSource = 'env-file';
+  } else if (saved && saved.token) {
+    token = saved.token;
+    tokenSource = 'saved';
   }
 
+  // URL: same priority — env > .env > saved > default.
+  let baseUrl = merged.MD_BROWSE_URL || (saved && saved.baseUrl) || 'http://localhost/api';
+  baseUrl = normalizeBaseUrl(baseUrl);
+
   return {
-    token: merged.MD_BROWSE_TOKEN || '',
+    token,
+    tokenSource,
     baseUrl,
-    envFilePath: envFile || findEnvFile(process.cwd())
+    envFilePath: envPath,
+    authFilePath: saved ? AUTH_FILE : null
   };
 }
 
-module.exports = { loadConfig, parseEnv };
+module.exports = {
+  loadConfig,
+  parseEnv,
+  readAuthFile,
+  writeAuthFile,
+  clearAuthFile,
+  normalizeBaseUrl,
+  AUTH_FILE
+};

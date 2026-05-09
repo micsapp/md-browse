@@ -397,7 +397,7 @@ case "${1:-deploy}" in
         
         install_deps
         build_frontend
-        build_cli
+        build_cli --force
         deploy_backend
         setup_nginx
         health_check
