@@ -118,11 +118,20 @@ md_cli batch-move a,b,c --folder <id|root>
 ### Sharing
 
 ```text
-md_cli share create <id>         Create a public share link
+md_cli share create <id> [--slug NAME] [--code CODE]
+                                 Create a public share link. --slug picks a
+                                 user-friendly URL (e.g. /share/release-notes
+                                 instead of /share/ZVEvHYPtw_…).
 md_cli share list [<id>]         List share links (for one doc, or all)
 md_cli share delete <share-id>   Revoke a share link
-md_cli share open <token>        Fetch a shared doc (no auth needed)
+md_cli share rename <share-id> <new-slug>
+                                 Rename to a custom slug (--clear drops it)
+md_cli share set-code <share-id> [code]
+                                 Set/change the access code (--clear removes it)
+md_cli share open <identifier>   Fetch a shared doc by slug OR token (no auth)
 ```
+
+Slugs must match `[A-Za-z0-9_-]{1,64}` and are unique across all shares.
 
 ### Folders
 
@@ -230,7 +239,11 @@ md_cli download-batch id1,id2,id3 -o docs.zip
 
 # Share a doc (URL derives from MD_BROWSE_URL)
 md_cli share create 5b3c…
-md_cli share create 5b3c… --code "secret"
+md_cli share create 5b3c… --slug release-notes        # /share/release-notes
+md_cli share create 5b3c… --code "secret" --slug staging
+md_cli share rename <share-id> new-name               # change the slug
+md_cli share rename <share-id> --clear                # back to token-only
+md_cli share open release-notes                       # slug also works for open
 md_cli share open <token> --code "secret" -o doc.md
 
 # Manage your tokens

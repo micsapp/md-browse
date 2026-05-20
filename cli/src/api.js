@@ -151,14 +151,18 @@ function buildClient({ token, baseUrl }) {
     batchMove(ids, folder_id) { return request('POST', '/v1/documents/batch/move', { body: { ids, folder_id } }); },
 
     // ── Sharing ─────────────────────────────────────────────────────────────
-    createShare(docId, access_code) {
+    createShare(docId, { access_code, slug } = {}) {
       return request('POST', `/v1/documents/${docId}/share`, {
-        body: { access_code: access_code || undefined }
+        body: {
+          access_code: access_code || undefined,
+          slug: slug || undefined
+        }
       });
     },
     listShares(docId) { return request('GET', `/v1/documents/${docId}/shares`); },
     listAllShares() { return request('GET', '/v1/shares'); },
     deleteShare(shareId) { return request('DELETE', `/v1/shares/${shareId}`); },
+    updateShare(shareId, body) { return request('PATCH', `/v1/shares/${shareId}`, { body }); },
 
     // Public share fetch — no auth required.
     async openShare(token, code) {

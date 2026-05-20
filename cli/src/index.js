@@ -42,7 +42,7 @@ Document commands:
   batch-move <ids>           Move many docs to a folder (--folder <id|root>)
 
 Sharing:
-  share <subcommand>         create / list / delete / open
+  share <subcommand>         create / list / delete / rename / set-code / open
 
 Folder commands:
   folders [list]             List folders
@@ -214,15 +214,24 @@ top level (folder_id=null).
   share: `md_cli share <subcommand>
 
 Subcommands:
-  create <doc-id> [--code <access-code>]   Create a public share link
+  create <doc-id> [--code <access-code>] [--slug <name>]
+                                           Create a public share link
   list [doc-id]                            List share links — for one doc, or all of yours
   delete <share-id>                        Revoke a share link
-  open <token> [--code <access-code>]      Fetch a shared doc (no auth needed)
+  rename <share-id> <new-slug>             Rename a share to a custom URL
+                                           Use --clear to drop the slug (fall back to token)
+  set-code <share-id> [<access-code>]      Set or change the access code
+                                           Use --clear to remove the access code
+  open <identifier> [--code <access-code>] Fetch a shared doc by slug OR token (no auth)
 
 Notes:
+  - Slugs are user-friendly names that work in place of the random token:
+    https://md.example.com/share/<slug>  ⇄  https://md.example.com/share/<token>
+    Slugs must match [A-Za-z0-9_-]{1,64} and be unique across all shares.
   - The printed share URL is derived from MD_BROWSE_URL.
     Override with --site-url <https://md.example.com> if you need a different one.
-  - 'create' and 'delete' need scope documents:write; 'list' needs documents:read.
+  - 'create', 'delete', 'rename', 'set-code' need scope documents:write;
+    'list' needs documents:read.
   - 'open' makes a public, unauthenticated call — no MD_BROWSE_TOKEN required.
 `,
   folders: `md_cli folders <subcommand>
@@ -668,9 +677,15 @@ function siteUrlFromBase(baseUrl, override) {
   return baseUrl;
 }
 
+// Build the public share URL — prefer the slug when set, fall back to token.
+function shareUrl(site, share) {
+  const id = share.slug || share.token;
+  return `${site}/share/${id}`;
+}
+
 async function cmdShare(rest) {
   const sub = rest[0];
-  if (!sub) throw new Error('share requires a subcommand: create | list | delete | open');
+  if (!sub) throw new Error('share requires a subcommand: create | list | delete | rename | set-code | open');
   const subRest = rest.slice(1);
 
   if (sub === 'create') {
@@ -678,12 +693,13 @@ async function cmdShare(rest) {
     const docId = f._[0];
     if (!docId) throw new Error('share create requires a document id');
     const { cfg, api } = buildContext(f);
-    const res = await api.createShare(docId, f.code);
+    const res = await api.createShare(docId, { access_code: f.code, slug: f.slug });
     if (f.json) return printJson(res);
     const site = siteUrlFromBase(cfg.baseUrl, f['site-url']);
     out(`share id:  ${res.id}`);
+    if (res.slug) out(`slug:      ${res.slug}`);
     out(`token:     ${res.token}`);
-    out(`url:       ${site}/share/${res.token}`);
+    out(`url:       ${shareUrl(site, res)}`);
     if (res.has_access_code) out(`note:      access code required to view`);
     return;
   }
@@ -709,8 +725,9 @@ async function cmdShare(rest) {
       const lock = s.has_access_code ? ' 🔒' : '';
       const dead = s.document_deleted ? ' (doc deleted)' : '';
       const title = s.document_title ? `  "${s.document_title}"` : '';
-      out(`${s.id}${title}${dead}`);
-      out(`  url:     ${site}/share/${s.token}${lock}`);
+      const slugTag = s.slug ? `  [${s.slug}]` : '';
+      out(`${s.id}${title}${slugTag}${dead}`);
+      out(`  url:     ${shareUrl(site, s)}${lock}`);
       out(`  doc:     ${s.document_id || '?'}    created: ${s.created_at || '?'}`);
     }
     return;
@@ -726,12 +743,49 @@ async function cmdShare(rest) {
     return;
   }
 
+  if (sub === 'rename' || sub === 'mv') {
+    const f = parseArgs(subRest, { boolFlags: ['json', 'clear'] });
+    const shareId = f._[0];
+    const newSlug = f._[1];
+    if (!shareId) throw new Error('share rename requires a share id');
+    if (!f.clear && !newSlug) throw new Error('share rename requires <new-slug> (or --clear to drop the slug)');
+    const body = { slug: f.clear ? null : newSlug };
+    const { cfg, api } = buildContext(f);
+    const res = await api.updateShare(shareId, body);
+    if (f.json) return printJson(res);
+    const site = siteUrlFromBase(cfg.baseUrl, f['site-url']);
+    if (res.slug) {
+      out(`renamed → slug ${res.slug}`);
+    } else {
+      out(`cleared slug; falls back to token`);
+    }
+    out(`url:       ${shareUrl(site, res)}`);
+    return;
+  }
+
+  if (sub === 'set-code' || sub === 'passcode') {
+    const f = parseArgs(subRest, { boolFlags: ['json', 'clear'] });
+    const shareId = f._[0];
+    if (!shareId) throw new Error('share set-code requires a share id');
+    let code;
+    if (f.clear) code = null;
+    else {
+      code = f._[1] !== undefined ? f._[1] : (f.code !== undefined ? f.code : await promptHidden('New access code: '));
+      if (!code) throw new Error('access code is empty (use --clear to remove instead)');
+    }
+    const { api } = buildContext(f);
+    const res = await api.updateShare(shareId, { access_code: code });
+    if (f.json) return printJson(res);
+    out(res.has_access_code ? `access code set` : `access code cleared`);
+    return;
+  }
+
   if (sub === 'open') {
     const f = parseArgs(subRest, { boolFlags: ['json', 'rendered'], aliases: { o: 'output' } });
-    const token = f._[0];
-    if (!token) throw new Error('share open requires a share token');
+    const identifier = f._[0];
+    if (!identifier) throw new Error('share open requires a share token or slug');
     const { api } = buildContext(f);
-    const res = await api.openShare(token, f.code);
+    const res = await api.openShare(identifier, f.code);
     if (f.json) return printJson(res);
     const body = f.rendered ? (res.content_html || '') : (res.content_md || '');
     if (f.output) {

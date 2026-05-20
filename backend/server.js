@@ -1336,28 +1336,101 @@ app.post('/api/v1/documents/batch/download', agentTokenMiddleware, requireScope(
 });
 
 // ── Share document ───────────────────────────────────────────────────────────
+// Slugs are short, filesystem/URL-safe identifiers users pick instead of (or
+// alongside) the random share token. They must not collide with another
+// share's slug *or* token, since /api/share/:identifier resolves both.
+const SHARE_SLUG_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+function validateShareSlug(slug) {
+  if (typeof slug !== 'string' || !SHARE_SLUG_RE.test(slug)) {
+    return 'Slug must match [A-Za-z0-9_-]{1,64}';
+  }
+  return null;
+}
+
+function slugCollides(slug, shares, ignoreShareId = null) {
+  for (const [sid, s] of Object.entries(shares)) {
+    if (sid === ignoreShareId) continue;
+    if (s.slug === slug) return 'slug already taken';
+    if (s.token === slug) return 'slug collides with an existing share token';
+  }
+  return null;
+}
+
 app.post('/api/v1/documents/:id/share', agentTokenMiddleware, requireScope('documents:write'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { access_code } = req.body;
+    const { access_code, slug } = req.body;
     const metadata = await readJson(META_FILE, {});
     if (!metadata[id] || metadata[id].deleted_at) {
       return sendError(res, 404, 'not_found', 'Document not found', null, req.requestId);
     }
     const shares = await readJson(SHARES_FILE, {});
+    let slugClean = null;
+    if (slug !== undefined && slug !== null && slug !== '') {
+      const err = validateShareSlug(slug);
+      if (err) return sendError(res, 400, 'validation_error', err, null, req.requestId);
+      const collide = slugCollides(slug, shares);
+      if (collide) return sendError(res, 409, 'conflict', collide, null, req.requestId);
+      slugClean = slug;
+    }
     const shareId = uuidv4();
     const token = crypto.randomBytes(24).toString('base64url');
     shares[shareId] = {
       id: shareId,
       document_id: id,
       token,
+      slug: slugClean,
       access_code: access_code || null,
       created_by: effectiveOwner(req),
       created_at: new Date().toISOString()
     };
     await writeJson(SHARES_FILE, shares);
-    await appendAuditLog(req.actorType, req.actorId, 'share.create', 'share', shareId, { document_id: id, has_code: !!access_code });
-    res.status(201).json({ id: shareId, token, has_access_code: !!access_code });
+    await appendAuditLog(req.actorType, req.actorId, 'share.create', 'share', shareId, { document_id: id, has_code: !!access_code, slug: slugClean });
+    res.status(201).json({ id: shareId, token, slug: slugClean, has_access_code: !!access_code });
+  } catch (err) {
+    sendError(res, 500, 'internal_error', err.message, null, req.requestId);
+  }
+});
+
+// Rename / clear a share's slug.
+app.patch('/api/v1/shares/:shareId', agentTokenMiddleware, requireScope('documents:write'), async (req, res) => {
+  try {
+    const { shareId } = req.params;
+    const shares = await readJson(SHARES_FILE, {});
+    const share = shares[shareId];
+    if (!share) return sendError(res, 404, 'not_found', 'Share not found', null, req.requestId);
+    const isAdmin = req.user?.role === 'admin';
+    if (!isAdmin && share.created_by !== effectiveOwner(req)) {
+      return sendError(res, 403, 'forbidden', 'Cannot modify another user\'s share', null, req.requestId);
+    }
+    const { slug, access_code } = req.body;
+    if (slug !== undefined) {
+      if (slug === null || slug === '') {
+        share.slug = null;
+      } else {
+        const err = validateShareSlug(slug);
+        if (err) return sendError(res, 400, 'validation_error', err, null, req.requestId);
+        const collide = slugCollides(slug, shares, shareId);
+        if (collide) return sendError(res, 409, 'conflict', collide, null, req.requestId);
+        share.slug = slug;
+      }
+    }
+    if (access_code !== undefined) {
+      share.access_code = access_code || null;
+    }
+    shares[shareId] = share;
+    await writeJson(SHARES_FILE, shares);
+    await appendAuditLog(req.actorType, req.actorId, 'share.update', 'share', shareId, { slug: share.slug, has_code: !!share.access_code });
+    res.json({
+      id: share.id,
+      document_id: share.document_id,
+      token: share.token,
+      slug: share.slug || null,
+      has_access_code: !!share.access_code,
+      created_by: share.created_by,
+      created_at: share.created_at
+    });
   } catch (err) {
     sendError(res, 500, 'internal_error', err.message, null, req.requestId);
   }
@@ -1376,6 +1449,7 @@ app.get('/api/v1/documents/:id/shares', agentTokenMiddleware, requireScope('docu
         document_id: s.document_id,
         document_title: title,
         token: s.token,
+        slug: s.slug || null,
         has_access_code: !!s.access_code,
         created_by: s.created_by,
         created_at: s.created_at
@@ -1401,6 +1475,7 @@ app.get('/api/v1/shares', agentTokenMiddleware, requireScope('documents:read'), 
         document_title: metadata[s.document_id]?.title || null,
         document_deleted: !!metadata[s.document_id]?.deleted_at,
         token: s.token,
+        slug: s.slug || null,
         has_access_code: !!s.access_code,
         created_by: s.created_by,
         created_at: s.created_at
@@ -1433,13 +1508,14 @@ app.delete('/api/v1/shares/:shareId', agentTokenMiddleware, requireScope('docume
   }
 });
 
-// Public share access (no auth required)
-app.get('/api/share/:token', async (req, res) => {
+// Public share access (no auth required). Identifier may be the random
+// token OR a user-chosen slug — both are unique across all shares.
+app.get('/api/share/:identifier', async (req, res) => {
   try {
-    const { token } = req.params;
+    const { identifier } = req.params;
     const { code } = req.query;
     const shares = await readJson(SHARES_FILE, {});
-    const share = Object.values(shares).find(s => s.token === token);
+    const share = Object.values(shares).find(s => s.token === identifier || s.slug === identifier);
     if (!share) {
       return sendError(res, 404, 'not_found', 'Share link not found or expired', null, req.requestId);
     }
