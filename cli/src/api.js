@@ -49,7 +49,8 @@ function buildClient({ token, baseUrl }) {
 
     const init = { method, headers: reqHeaders };
     if (body !== undefined) {
-      if (body instanceof FormData) {
+      const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+      if (isFormData) {
         init.body = body;
       } else if (Buffer.isBuffer(body)) {
         init.body = body;
