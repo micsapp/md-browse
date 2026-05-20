@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const profileMod = require('./profile');
 
 // ── Minimal .env parser (no dotenv dependency) ─────────────────────────────
 // Supports `KEY=value`, `KEY="value"`, `KEY='value'`, comments via `#`, blank
@@ -48,9 +49,10 @@ function findEnvFile(startDir) {
   }
 }
 
-// ── Persisted auth state (~/.md-browse/auth.json) ──────────────────────────
-const AUTH_DIR = path.join(os.homedir(), '.md-browse');
-const AUTH_FILE = path.join(AUTH_DIR, 'auth.json');
+// ── Legacy single-file auth (~/.md-browse/auth.json) ───────────────────────
+// Kept exported for back-compat with any callers; new code uses profiles.
+const AUTH_DIR = profileMod.ROOT;
+const AUTH_FILE = profileMod.LEGACY_AUTH_FILE;
 
 function readAuthFile() {
   try { return JSON.parse(fs.readFileSync(AUTH_FILE, 'utf8')); } catch { return null; }
@@ -65,22 +67,42 @@ function clearAuthFile() {
   try { fs.unlinkSync(AUTH_FILE); } catch {}
 }
 
+// Normalize a base URL to its bare site root (no trailing slash, no /api).
+// API helpers add `/api/...` themselves.
 function normalizeBaseUrl(u) {
-  let out = String(u).replace(/\/+$/, '');
-  if (!/\/api$/.test(out)) out = `${out}/api`;
-  return out;
+  return String(u).replace(/\/+$/, '').replace(/\/api$/, '');
 }
 
-function loadConfig({ envFile } = {}) {
+let _migrationAnnounced = false;
+
+function loadConfig({ envFile, profile } = {}) {
+  // One-time migration of the legacy ~/.md-browse/auth.json into a profile.
+  const migrated = profileMod.migrateLegacyIfNeeded();
+  if (migrated && !_migrationAnnounced) {
+    _migrationAnnounced = true;
+    process.stderr.write(
+      `migrated ~/.md-browse/auth.json → profiles/${migrated}.json\n`
+    );
+  }
+
   const envPath = envFile
     ? path.resolve(envFile)
     : findEnvFile(process.cwd());
   const fileEnv = envPath ? loadEnvFile(envPath) : {};
-  // Note: process.env wins over .env file; .env wins over saved file.
   const merged = { ...fileEnv, ...process.env };
-  const saved = readAuthFile();
 
-  // Resolve token with explicit source tracking so `whoami` can explain.
+  // Resolve which profile (if any) is in play. --profile flag wins over env
+  // var, which wins over the persisted `current` pointer. Invalid names from
+  // env / current are silently ignored — the user can fix them with `use`.
+  let profileName = profile || process.env.MD_BROWSE_PROFILE || profileMod.getCurrent();
+  if (profileName) {
+    try { profileMod.validateName(profileName); }
+    catch { profileName = null; }
+  }
+  const profileState = profileName ? profileMod.readProfile(profileName) : null;
+  const profileSource = profile ? 'flag' : (process.env.MD_BROWSE_PROFILE ? 'env' : (profileState ? 'current' : null));
+
+  // Token: env > .env > profile.
   let token = '';
   let tokenSource = 'none';
   if (process.env.MD_BROWSE_TOKEN) {
@@ -89,13 +111,13 @@ function loadConfig({ envFile } = {}) {
   } else if (fileEnv.MD_BROWSE_TOKEN) {
     token = fileEnv.MD_BROWSE_TOKEN;
     tokenSource = 'env-file';
-  } else if (saved && saved.token) {
-    token = saved.token;
-    tokenSource = 'saved';
+  } else if (profileState && profileState.token) {
+    token = profileState.token;
+    tokenSource = 'profile';
   }
 
-  // URL: same priority — env > .env > saved > default.
-  let baseUrl = merged.MD_BROWSE_URL || (saved && saved.baseUrl) || 'http://localhost/api';
+  // Base URL: env > .env > profile > default. Stored bare; helpers add /api.
+  let baseUrl = merged.MD_BROWSE_URL || (profileState && profileState.baseUrl) || 'http://localhost';
   baseUrl = normalizeBaseUrl(baseUrl);
 
   return {
@@ -103,7 +125,11 @@ function loadConfig({ envFile } = {}) {
     tokenSource,
     baseUrl,
     envFilePath: envPath,
-    authFilePath: saved ? AUTH_FILE : null
+    profileName: profileState ? profileName : null,
+    profileSource,
+    savedUsername: profileState && profileState.username,
+    savedTokenName: profileState && profileState.token_name,
+    profilesDir: profileMod.PROFILES_DIR
   };
 }
 

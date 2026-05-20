@@ -861,12 +861,13 @@ app.post('/api/v1/agents/tokens', authMiddleware, async (req, res) => {
 });
 
 // List agent tokens (current user's tokens; admins see all)
-app.get('/api/v1/agents/tokens', authMiddleware, async (req, res) => {
+app.get('/api/v1/agents/tokens', agentTokenMiddleware, async (req, res) => {
   try {
     const tokens = await readJson(AGENT_TOKENS_FILE, {});
+    const owner = effectiveOwner(req);
     const isAdmin = req.user?.role === 'admin';
     const list = Object.values(tokens)
-      .filter(t => isAdmin || t.created_by === req.actorId)
+      .filter(t => isAdmin || t.created_by === owner)
       .map(({ token_hash, ...safe }) => safe)
       .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
     res.json({ data: list });
@@ -876,7 +877,7 @@ app.get('/api/v1/agents/tokens', authMiddleware, async (req, res) => {
 });
 
 // Revoke (delete) agent token
-app.delete('/api/v1/agents/tokens/:id', authMiddleware, async (req, res) => {
+app.delete('/api/v1/agents/tokens/:id', agentTokenMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const tokens = await readJson(AGENT_TOKENS_FILE, {});
@@ -884,13 +885,14 @@ app.delete('/api/v1/agents/tokens/:id', authMiddleware, async (req, res) => {
     if (!tok) {
       return sendError(res, 404, 'not_found', 'Token not found', null, req.requestId);
     }
+    const owner = effectiveOwner(req);
     const isAdmin = req.user?.role === 'admin';
-    if (!isAdmin && tok.created_by !== req.actorId) {
+    if (!isAdmin && tok.created_by !== owner) {
       return sendError(res, 403, 'forbidden', 'Cannot revoke another user\'s token', null, req.requestId);
     }
     delete tokens[id];
     await writeJson(AGENT_TOKENS_FILE, tokens);
-    await appendAuditLog('user', req.actorId, 'agent_token.revoke', 'agent_token', id, { name: tok.name });
+    await appendAuditLog(req.actorType || 'user', req.actorId, 'agent_token.revoke', 'agent_token', id, { name: tok.name });
     res.status(204).send();
   } catch (err) {
     sendError(res, 500, 'internal_error', err.message, null, req.requestId);
@@ -900,7 +902,7 @@ app.delete('/api/v1/agents/tokens/:id', authMiddleware, async (req, res) => {
 // ── Folder routes ─────────────────────────────────────────────────────────────
 
 // List all folders
-app.get('/api/v1/folders', authMiddleware, async (req, res) => {
+app.get('/api/v1/folders', agentTokenMiddleware, requireScope('documents:read'), async (req, res) => {
   try {
     const folders = await readJson(FOLDERS_FILE, {});
     res.json(Object.values(folders));
@@ -910,7 +912,7 @@ app.get('/api/v1/folders', authMiddleware, async (req, res) => {
 });
 
 // Create folder
-app.post('/api/v1/folders', authMiddleware, async (req, res) => {
+app.post('/api/v1/folders', agentTokenMiddleware, requireScope('documents:write'), async (req, res) => {
   try {
     const { name, parent_id = null } = req.body;
     if (!name?.trim()) {
@@ -935,7 +937,7 @@ app.post('/api/v1/folders', authMiddleware, async (req, res) => {
 });
 
 // Update folder (rename or reparent)
-app.put('/api/v1/folders/:id', authMiddleware, async (req, res) => {
+app.put('/api/v1/folders/:id', agentTokenMiddleware, requireScope('documents:write'), async (req, res) => {
   try {
     const { id } = req.params;
     const folders = await readJson(FOLDERS_FILE, {});
@@ -1006,7 +1008,7 @@ app.put('/api/v1/folders/:id', authMiddleware, async (req, res) => {
 });
 
 // Delete folder (moves docs to parent, recursively deletes children)
-app.delete('/api/v1/folders/:id', authMiddleware, async (req, res) => {
+app.delete('/api/v1/folders/:id', agentTokenMiddleware, requireScope('documents:write'), async (req, res) => {
   try {
     const { id } = req.params;
     const folders = await readJson(FOLDERS_FILE, {});
@@ -1063,7 +1065,7 @@ app.delete('/api/v1/folders/:id', authMiddleware, async (req, res) => {
 });
 
 // Audit logs
-app.get('/api/v1/audit-logs', authMiddleware, async (req, res) => {
+app.get('/api/v1/audit-logs', agentTokenMiddleware, requireScope('audit:read'), async (req, res) => {
   try {
     const { actor_type, action } = req.query;
     const page = Math.max(1, parseInt(req.query.page) || 1);
@@ -1245,7 +1247,7 @@ app.get('/api/v1/documents/:id/download', agentTokenMiddleware, requireScope('do
 });
 
 // ── Batch operations ─────────────────────────────────────────────────────────
-app.post('/api/v1/documents/batch/delete', authMiddleware, async (req, res) => {
+app.post('/api/v1/documents/batch/delete', agentTokenMiddleware, requireScope('documents:write'), async (req, res) => {
   try {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -1270,7 +1272,7 @@ app.post('/api/v1/documents/batch/delete', authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/v1/documents/batch/move', authMiddleware, async (req, res) => {
+app.post('/api/v1/documents/batch/move', agentTokenMiddleware, requireScope('documents:write'), async (req, res) => {
   try {
     const { ids, folder_id } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {

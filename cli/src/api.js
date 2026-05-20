@@ -1,10 +1,11 @@
 const fs = require('fs');
 const path = require('path');
+require('./fetch-polyfill');
 
 class ApiError extends Error {
   constructor(status, body, requestId) {
     const code = body?.error?.code || 'http_error';
-    const msg = body?.error?.message || `HTTP ${status}`;
+    const msg = body?.error?.message || (typeof body === 'string' && body) || `HTTP ${status}`;
     super(`${code}: ${msg}`);
     this.status = status;
     this.body = body;
@@ -12,35 +13,45 @@ class ApiError extends Error {
   }
 }
 
+// baseUrl is normalized to the bare site root (no trailing slash, no /api).
+// Each request helper prepends /api before the path so the same baseUrl
+// works for /api/v1/*, /api/auth/*, /share/*, etc.
 function buildClient({ token, baseUrl }) {
   if (typeof fetch !== 'function') {
-    throw new Error('Node 18+ is required (global fetch is missing)');
+    throw new Error('fetch is missing — Node 18+ or the bundled fetch polyfill is required');
   }
 
   function authHeaders(extra = {}) {
     if (!token) {
       throw new Error(
-        'MD_BROWSE_TOKEN is not set. Create one at /tokens on your md-browse site, '
-        + 'then add `MD_BROWSE_TOKEN=agt_…` to your .env file.'
+        'No token configured. Run `md_cli login` or set MD_BROWSE_TOKEN in your .env.'
       );
     }
     return { 'X-Agent-Token': token, ...extra };
   }
 
-  async function request(method, urlPath, { headers, body, query, raw } = {}) {
-    let url = `${baseUrl}${urlPath}`;
+  function jwtHeaders(jwt, extra = {}) {
+    return { Authorization: `Bearer ${jwt}`, ...extra };
+  }
+
+  async function request(method, urlPath, { headers, body, query, raw, noAuth, jwt } = {}) {
+    let url = `${baseUrl}/api${urlPath}`;
     if (query) {
       const qs = new URLSearchParams(
         Object.fromEntries(Object.entries(query).filter(([, v]) => v !== undefined && v !== null && v !== ''))
       ).toString();
       if (qs) url += `?${qs}`;
     }
-    const init = {
-      method,
-      headers: authHeaders(headers || {})
-    };
+    let reqHeaders;
+    if (noAuth) reqHeaders = headers || {};
+    else if (jwt) reqHeaders = jwtHeaders(jwt, headers || {});
+    else reqHeaders = authHeaders(headers || {});
+
+    const init = { method, headers: reqHeaders };
     if (body !== undefined) {
       if (body instanceof FormData) {
+        init.body = body;
+      } else if (Buffer.isBuffer(body)) {
         init.body = body;
       } else {
         init.body = typeof body === 'string' ? body : JSON.stringify(body);
@@ -71,6 +82,27 @@ function buildClient({ token, baseUrl }) {
   }
 
   return {
+    // ── Health / probe ──────────────────────────────────────────────────────
+    health() { return request('GET', '/health', { noAuth: true }); },
+
+    // ── Auth (session JWT flow used by login) ───────────────────────────────
+    loginPassword(username, password) {
+      return request('POST', '/auth/login', {
+        noAuth: true,
+        body: { username, password }
+      });
+    },
+    mintAgentToken(jwt, { name, scopes, expires_at }) {
+      return request('POST', '/v1/agents/tokens', {
+        jwt,
+        body: { name, scopes, expires_at }
+      });
+    },
+    me(jwt) {
+      return request('GET', '/auth/me', { jwt });
+    },
+
+    // ── Documents ────────────────────────────────────────────────────────────
     listDocuments(query = {}) { return request('GET', '/v1/documents', { query }); },
     searchDocuments(q, query = {}) { return request('GET', '/v1/search', { query: { q, ...query } }); },
     getDocument(id, query = {}) { return request('GET', `/v1/documents/${id}`, { query }); },
@@ -97,6 +129,8 @@ function buildClient({ token, baseUrl }) {
       });
     },
 
+    getChunks(id, query = {}) { return request('GET', `/v1/documents/${id}/chunks`, { query }); },
+
     async downloadDocument(id) {
       const res = await request('GET', `/v1/documents/${id}/download`, { raw: true });
       const filename = (res.headers.get('content-disposition') || '').match(/filename="(.+?)"/)?.[1];
@@ -112,6 +146,8 @@ function buildClient({ token, baseUrl }) {
       const buf = Buffer.from(await res.arrayBuffer());
       return { buffer: buf };
     },
+    batchDelete(ids) { return request('POST', '/v1/documents/batch/delete', { body: { ids } }); },
+    batchMove(ids, folder_id) { return request('POST', '/v1/documents/batch/move', { body: { ids, folder_id } }); },
 
     // ── Sharing ─────────────────────────────────────────────────────────────
     createShare(docId, access_code) {
@@ -125,14 +161,68 @@ function buildClient({ token, baseUrl }) {
 
     // Public share fetch — no auth required.
     async openShare(token, code) {
-      const url = `${baseUrl}/share/${encodeURIComponent(token)}${code ? `?code=${encodeURIComponent(code)}` : ''}`;
+      const url = `${baseUrl}/api/share/${encodeURIComponent(token)}${code ? `?code=${encodeURIComponent(code)}` : ''}`;
       const res = await fetch(url);
       const text = await res.text();
       let parsed = null;
       if (text) { try { parsed = JSON.parse(text); } catch { parsed = text; } }
       if (!res.ok) throw new ApiError(res.status, parsed, res.headers.get('x-request-id'));
       return parsed;
-    }
+    },
+
+    // ── Folders ─────────────────────────────────────────────────────────────
+    listFolders() { return request('GET', '/v1/folders'); },
+    createFolder(name, parent_id) {
+      return request('POST', '/v1/folders', { body: { name, parent_id: parent_id || null } });
+    },
+    updateFolder(id, body) { return request('PUT', `/v1/folders/${id}`, { body }); },
+    deleteFolder(id) { return request('DELETE', `/v1/folders/${id}`); },
+
+    // ── Server-side agent tokens (manage your tokens via /tokens UI) ────────
+    listAgentTokens() { return request('GET', '/v1/agents/tokens'); },
+    revokeAgentToken(id) { return request('DELETE', `/v1/agents/tokens/${id}`); },
+
+    // ── Audit log ───────────────────────────────────────────────────────────
+    listAuditLogs(query = {}) { return request('GET', '/v1/audit-logs', { query }); },
+
+    // ── Categories / tags (public list) ─────────────────────────────────────
+    listCategories() { return request('GET', '/v1/categories', { noAuth: true }); },
+    listTags() { return request('GET', '/v1/tags', { noAuth: true }); },
+
+    // ── Document assets ─────────────────────────────────────────────────────
+    listDocumentAssets(docId) { return request('GET', `/v1/documents/${docId}/assets`); },
+    async uploadDocumentAssets(docId, filePaths) {
+      const form = new FormData();
+      for (const fp of filePaths) {
+        const abs = path.resolve(fp);
+        const buf = fs.readFileSync(abs);
+        form.append('files', new Blob([buf]), path.basename(abs));
+      }
+      return request('POST', `/v1/documents/${docId}/assets`, { body: form });
+    },
+
+    // ── Folder assets ───────────────────────────────────────────────────────
+    listFolderAssets(folderId) { return request('GET', `/v1/folders/${folderId}/assets`); },
+    deleteFolderAsset(folderId, filename) {
+      return request('DELETE', `/v1/folders/${folderId}/assets/${encodeURIComponent(filename)}`);
+    },
+    async uploadFolderAssets(folderId, filePaths) {
+      const form = new FormData();
+      for (const fp of filePaths) {
+        const abs = path.resolve(fp);
+        const buf = fs.readFileSync(abs);
+        form.append('files', new Blob([buf]), path.basename(abs));
+      }
+      return request('POST', `/v1/folders/${folderId}/assets`, { body: form });
+    },
+
+    // ── Admin: users / settings (require admin role on session JWT) ─────────
+    listUsers(jwt) { return request('GET', '/v1/admin/users', { jwt }); },
+    createUser(jwt, body) { return request('POST', '/v1/admin/users', { jwt, body }); },
+    updateUser(jwt, username, body) { return request('PUT', `/v1/admin/users/${encodeURIComponent(username)}`, { jwt, body }); },
+    deleteUser(jwt, username) { return request('DELETE', `/v1/admin/users/${encodeURIComponent(username)}`, { jwt }); },
+    getSettings(jwt) { return request('GET', '/v1/admin/settings', { jwt }); },
+    updateSettings(jwt, body) { return request('PUT', '/v1/admin/settings', { jwt, body }); }
   };
 }
 

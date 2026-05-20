@@ -1,7 +1,7 @@
 {
   "name": "md-browse-cli",
-  "version": "0.1.0",
-  "description": "Command-line client for MarkdownHub (md-browse) — list, search, upload, update, version, and download markdown documents.",
+  "version": "0.2.0",
+  "description": "Command-line client for MarkdownHub (md-browse) — multi-profile, folders, tokens, audit, sharing, admin.",
   "bin": {
     "md_cli": "bin/md_cli.js"
   },
@@ -17,11 +17,13 @@
   },
   "scripts": {
     "start": "node bin/md_cli.js",
-    "build": "node scripts/build-host.js",
-    "build:linux": "pkg . --targets node20-linux-x64 --output dist/md_cli-linux-x64 && pkg . --targets node20-linux-arm64 --output dist/md_cli-linux-arm64",
-    "build:mac": "pkg . --targets node20-macos-x64 --output dist/md_cli-macos-x64 && pkg . --targets node20-macos-arm64 --output dist/md_cli-macos-arm64",
-    "build:win": "pkg . --targets node20-win-x64 --output dist/md_cli-win-x64.exe",
-    "build:all": "npm run build:linux && npm run build:mac && npm run build:win",
+    "build-info": "node scripts/build-info.js",
+    "build": "npm run build-info && node scripts/build-host.js",
+    "build:linux": "npm run build-info && pkg . --targets node20-linux-x64 --output dist/md_cli-linux-x64 && pkg . --targets node20-linux-arm64 --output dist/md_cli-linux-arm64",
+    "build:linux-portable": "cd .. && ./build_cli_portable.sh",
+    "build:mac": "npm run build-info && pkg . --targets node20-macos-x64 --output dist/md_cli-macos-x64 && pkg . --targets node20-macos-arm64 --output dist/md_cli-macos-arm64",
+    "build:win": "npm run build-info && pkg . --targets node20-win-x64 --output dist/md_cli-win-x64.exe",
+    "build:all": "npm run build:linux && npm run build:linux-portable && npm run build:mac && npm run build:win",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "pkg": {
@@ -34,7 +36,8 @@
       ".env.example",
       "README.md"
     ],
-    "outputPath": "dist"
+    "outputPath": "dist",
+    "fallbackToSource": true
   },
   "devDependencies": {
     "@yao-pkg/pkg": "^6.7.0"
@@ -43,7 +46,8 @@
     "markdown",
     "md-browse",
     "cli",
-    "documents"
+    "documents",
+    "knowledge-base"
   ],
   "license": "MIT"
 }
