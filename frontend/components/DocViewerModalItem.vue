@@ -53,10 +53,12 @@
       <div v-if="showSharePanel" class="dv-panel">
         <h4>Share Document</h4>
         <div class="dv-share-row">
+          <input v-model="shareSlug" placeholder="Custom URL (optional, e.g. release-notes)" class="dv-share-slug" />
           <label class="dv-share-label"><input type="checkbox" v-model="shareWithCode" /> Require access code</label>
           <input v-if="shareWithCode" v-model="shareCode" placeholder="Access code" class="dv-share-code" />
           <button @click="createNewShare" class="dv-btn dv-btn-accent">Create Link</button>
         </div>
+        <p v-if="shareError" class="dv-share-error">{{ shareError }}</p>
         <div v-if="newShareUrl" class="dv-share-result">
           <div class="dv-share-url-row">
             <input :value="newShareUrl" readonly @click="$event.target.select()" />
@@ -67,9 +69,10 @@
         <div v-if="shares.length" class="dv-share-list">
           <div v-for="s in shares" :key="s.id" class="dv-share-item">
             <span class="dv-share-icon">{{ s.has_access_code ? '🔒' : '🔗' }}</span>
-            <input :value="shareUrl(s.token)" readonly @click="$event.target.select()" class="dv-share-item-url" />
+            <input :value="shareUrl(s)" readonly @click="$event.target.select()" class="dv-share-item-url" />
             <span class="dv-dimmed">{{ formatDate(s.created_at) }}</span>
-            <button @click="copyUrl(s.token, s.id)" class="dv-btn">{{ copiedId === s.id ? '✓' : 'Copy' }}</button>
+            <button @click="copyUrl(s)" class="dv-btn">{{ copiedId === s.id ? '✓' : 'Copy' }}</button>
+            <button @click="renameShare(s)" class="dv-btn" :title="s.slug ? 'Rename custom URL' : 'Add custom URL'">{{ s.slug ? 'Rename' : 'Slug' }}</button>
             <button @click="revokeShare(s.id)" class="dv-btn dv-btn-danger">Revoke</button>
           </div>
         </div>
@@ -224,6 +227,8 @@ const versions = ref([])
 const shares = ref([])
 const shareWithCode = ref(false)
 const shareCode = ref('')
+const shareSlug = ref('')
+const shareError = ref('')
 const newShareUrl = ref('')
 const newShareHasCode = ref(false)
 const copied = ref(false)
@@ -242,7 +247,7 @@ watch(() => props.modal.docId, async (id) => {
   if (!id) { doc.value = null; return }
   pending.value = true
   editing.value = false; showVersions.value = false; showSharePanel.value = false
-  versions.value = []; newShareUrl.value = ''
+  versions.value = []; newShareUrl.value = ''; shareError.value = ''; shareSlug.value = ''
   try { doc.value = await api.getDocument(id) }
   catch { doc.value = null }
   finally { pending.value = false }
@@ -322,12 +327,24 @@ async function deleteDoc() {
 
 async function downloadDoc() { await api.downloadDocument(props.modal.docId) }
 
+function apiErrMessage(e) {
+  return e?.data?.error?.message || e?.response?._data?.error?.message || e?.message || 'Request failed.'
+}
+
 async function createNewShare() {
-  const res = await api.createShare(props.modal.docId, shareWithCode.value ? shareCode.value : null)
-  newShareUrl.value = `${window.location.origin}/share/${res.token}`
-  newShareHasCode.value = res.has_access_code
-  shareCode.value = ''; shareWithCode.value = false
-  await loadShares()
+  shareError.value = ''
+  try {
+    const res = await api.createShare(props.modal.docId, {
+      access_code: shareWithCode.value ? shareCode.value : null,
+      slug: shareSlug.value.trim() || null
+    })
+    newShareUrl.value = `${window.location.origin}/share/${res.slug || res.token}`
+    newShareHasCode.value = res.has_access_code
+    shareCode.value = ''; shareWithCode.value = false; shareSlug.value = ''
+    await loadShares()
+  } catch (e) {
+    shareError.value = apiErrMessage(e)
+  }
 }
 async function loadShares() { shares.value = await api.getShares(props.modal.docId) }
 async function revokeShare(shareId) {
@@ -335,8 +352,25 @@ async function revokeShare(shareId) {
   await api.deleteShare(shareId)
   await loadShares()
 }
-function shareUrl(token) {
-  return `${window.location.origin}/share/${token}`
+async function renameShare(s) {
+  const next = prompt(
+    s.slug
+      ? `Rename custom URL for this share.\nCurrent: ${s.slug}\nLeave blank to clear and fall back to the random token.`
+      : `Set a custom URL (slug) for this share. Letters, digits, dot, underscore, hyphen; max 64 chars.\nLeaving blank cancels.`,
+    s.slug || ''
+  )
+  if (next === null) return
+  const trimmed = next.trim()
+  if (!trimmed && !s.slug) return  // nothing to do
+  try {
+    await api.updateShare(s.id, { slug: trimmed || null })
+    await loadShares()
+  } catch (e) {
+    alert(apiErrMessage(e))
+  }
+}
+function shareUrl(s) {
+  return `${window.location.origin}/share/${s.slug || s.token}`
 }
 
 async function copyShareUrl() {
@@ -345,9 +379,9 @@ async function copyShareUrl() {
   setTimeout(() => { copied.value = false }, 2000)
 }
 
-async function copyUrl(token, id) {
-  await navigator.clipboard.writeText(shareUrl(token))
-  copiedId.value = id
+async function copyUrl(s) {
+  await navigator.clipboard.writeText(shareUrl(s))
+  copiedId.value = s.id
   setTimeout(() => { copiedId.value = null }, 2000)
 }
 </script>
@@ -431,6 +465,8 @@ async function copyUrl(token, id) {
 .dv-share-row { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-bottom: 0.5rem; }
 .dv-share-label { display: flex; align-items: center; gap: 0.3rem; font-size: 0.83rem; cursor: pointer; color: var(--text); }
 .dv-share-code { padding: 0.28rem 0.45rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.83rem; width: 130px; background: var(--surface); color: var(--text); }
+.dv-share-slug { padding: 0.28rem 0.45rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.83rem; width: 220px; background: var(--surface); color: var(--text); font-family: monospace; }
+.dv-share-error { color: var(--danger, #c0392b); font-size: 0.8rem; margin: 0 0 0.4rem 0; }
 .dv-share-result { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 0.45rem; margin-bottom: 0.4rem; }
 .dv-share-url-row { display: flex; gap: 0.3rem; }
 .dv-share-url-row input { flex: 1; padding: 0.28rem 0.4rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.8rem; font-family: monospace; background: var(--surface2); color: var(--text); }

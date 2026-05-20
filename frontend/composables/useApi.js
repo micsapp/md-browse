@@ -137,10 +137,13 @@ export const useApi = () => {
     URL.revokeObjectURL(url)
   }
 
-  async function createShare(docId, access_code) {
+  async function createShare(docId, { access_code, slug } = {}) {
     return request(`/v1/documents/${docId}/share`, {
       method: 'POST',
-      body: { access_code: access_code || undefined }
+      body: {
+        access_code: access_code || undefined,
+        slug: slug || undefined
+      }
     })
   }
 
@@ -150,6 +153,13 @@ export const useApi = () => {
 
   async function deleteShare(shareId) {
     return request(`/v1/shares/${shareId}`, { method: 'DELETE' })
+  }
+
+  async function updateShare(shareId, body) {
+    return request(`/v1/shares/${shareId}`, {
+      method: 'PATCH',
+      body
+    })
   }
 
   async function getSharedDocument(token, code) {
@@ -204,6 +214,7 @@ export const useApi = () => {
     createShare,
     getShares,
     deleteShare,
+    updateShare,
     getSharedDocument,
     uploadFolderAssets,
     getFolderAssets,

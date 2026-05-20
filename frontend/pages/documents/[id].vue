@@ -41,12 +41,14 @@
       <div v-if="showSharePanel" class="share-panel">
         <h3>Share Document</h3>
         <div class="share-create">
+          <input v-model="shareSlug" placeholder="Custom URL (optional, e.g. release-notes)" class="share-code-input" style="min-width:240px;" />
           <label class="share-label">
             <input type="checkbox" v-model="shareWithCode" /> Require access code
           </label>
           <input v-if="shareWithCode" v-model="shareCode" placeholder="Enter access code" class="share-code-input" />
           <button @click="createNewShare" class="btn-create-share">Create Share Link</button>
         </div>
+        <p v-if="shareError" class="share-error">{{ shareError }}</p>
         <div v-if="newShareUrl" class="share-result">
           <p>Share URL:</p>
           <div class="share-url-row">
@@ -58,8 +60,9 @@
         <div v-if="shares.length" class="share-list">
           <h4>Active share links</h4>
           <div v-for="s in shares" :key="s.id" class="share-item">
-            <span class="share-token">{{ s.has_access_code ? '🔒' : '🔗' }} /share/{{ s.token.slice(0, 8) }}…</span>
+            <span class="share-token">{{ s.has_access_code ? '🔒' : '🔗' }} /share/{{ s.slug || (s.token.slice(0, 8) + '…') }}</span>
             <span class="share-date">{{ formatDate(s.created_at) }}</span>
+            <button @click="renameShare(s)" class="btn-sm">{{ s.slug ? 'Rename' : 'Slug' }}</button>
             <button @click="revokeShare(s.id)" class="btn-sm btn-danger">Revoke</button>
           </div>
         </div>
@@ -110,9 +113,15 @@ const versions = ref([])
 const shares = ref([])
 const shareWithCode = ref(false)
 const shareCode = ref('')
+const shareSlug = ref('')
+const shareError = ref('')
 const newShareUrl = ref('')
 const newShareHasCode = ref(false)
 const copied = ref(false)
+
+function apiErrMessage(e) {
+  return e?.data?.error?.message || e?.response?._data?.error?.message || e?.message || 'Request failed.'
+}
 
 watch(editing, (val) => {
   if (val && doc.value) {
@@ -203,13 +212,22 @@ async function downloadDoc() {
 }
 
 async function createNewShare() {
-  const res = await api.createShare(route.params.id, shareWithCode.value ? shareCode.value : null)
-  const base = window.location.origin
-  newShareUrl.value = `${base}/share/${res.token}`
-  newShareHasCode.value = res.has_access_code
-  shareCode.value = ''
-  shareWithCode.value = false
-  await loadShares()
+  shareError.value = ''
+  try {
+    const res = await api.createShare(route.params.id, {
+      access_code: shareWithCode.value ? shareCode.value : null,
+      slug: shareSlug.value.trim() || null
+    })
+    const base = window.location.origin
+    newShareUrl.value = `${base}/share/${res.slug || res.token}`
+    newShareHasCode.value = res.has_access_code
+    shareCode.value = ''
+    shareWithCode.value = false
+    shareSlug.value = ''
+    await loadShares()
+  } catch (e) {
+    shareError.value = apiErrMessage(e)
+  }
 }
 
 async function loadShares() {
@@ -220,6 +238,24 @@ async function revokeShare(shareId) {
   if (!confirm('Revoke this share link?')) return
   await api.deleteShare(shareId)
   await loadShares()
+}
+
+async function renameShare(s) {
+  const next = prompt(
+    s.slug
+      ? `Rename custom URL for this share.\nCurrent: ${s.slug}\nLeave blank to clear and fall back to the random token.`
+      : `Set a custom URL (slug). Letters, digits, dot, underscore, hyphen; max 64 chars.\nLeaving blank cancels.`,
+    s.slug || ''
+  )
+  if (next === null) return
+  const trimmed = next.trim()
+  if (!trimmed && !s.slug) return
+  try {
+    await api.updateShare(s.id, { slug: trimmed || null })
+    await loadShares()
+  } catch (e) {
+    alert(apiErrMessage(e))
+  }
 }
 
 async function copyShareUrl() {
@@ -282,6 +318,7 @@ watch(showSharePanel, (val) => { if (val) loadShares() })
 .share-url-input { flex: 1; padding: 0.35rem 0.5rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.85rem; font-family: monospace; background: var(--surface2); color: var(--text); }
 .btn-copy { padding: 0.35rem 0.6rem; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; min-width: 50px; }
 .share-note { color: var(--text3); font-size: 0.82rem; margin-top: 0.3rem; }
+.share-error { color: var(--danger, #c0392b); font-size: 0.85rem; margin: 0 0 0.5rem 0; }
 .share-list { border-top: 1px solid var(--border); padding-top: 0.5rem; }
 .share-item { display: flex; gap: 0.75rem; align-items: center; padding: 0.4rem 0; font-size: 0.85rem; }
 .share-token { flex: 1; font-family: monospace; color: var(--text2); }
