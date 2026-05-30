@@ -184,8 +184,10 @@ resolve_ssl() {
 
     local cert_path key_path
 
-    read -t 60 -rp "Enter SSL certificate file path (or press Enter to skip HTTPS): " cert_path
-    if [ $? -ne 0 ] || [ -z "$cert_path" ]; then
+    # `|| true` so `set -e` doesn't abort on read failure (EOF/timeout in a
+    # non-interactive run); the empty-value check below handles skipping HTTPS.
+    read -t 60 -rp "Enter SSL certificate file path (or press Enter to skip HTTPS): " cert_path || true
+    if [ -z "$cert_path" ]; then
         echo ""
         log_warn "No SSL certificate provided — deploying with HTTP only (port 80)"
         return
@@ -197,8 +199,8 @@ resolve_ssl() {
         return
     fi
 
-    read -t 60 -rp "Enter SSL certificate key file path: " key_path
-    if [ $? -ne 0 ] || [ -z "$key_path" ]; then
+    read -t 60 -rp "Enter SSL certificate key file path: " key_path || true
+    if [ -z "$key_path" ]; then
         echo ""
         log_warn "No SSL key provided — deploying with HTTP only (port 80)"
         return
