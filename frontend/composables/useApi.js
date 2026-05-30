@@ -151,6 +151,18 @@ export const useApi = () => {
     return request(`/v1/documents/${docId}/shares`)
   }
 
+  // All share links visible to the current user (admins see everyone's).
+  async function getAllShares() {
+    const res = await request('/v1/shares')
+    return res.data || res
+  }
+
+  // Live availability check for a custom slug. Returns
+  // { valid, available, reason?, suggestion } without mutating anything.
+  async function checkShareSlug(slug) {
+    return request(`/v1/shares/slug-check?slug=${encodeURIComponent(slug)}`)
+  }
+
   async function deleteShare(shareId) {
     return request(`/v1/shares/${shareId}`, { method: 'DELETE' })
   }
@@ -213,6 +225,8 @@ export const useApi = () => {
     batchDownload,
     createShare,
     getShares,
+    getAllShares,
+    checkShareSlug,
     deleteShare,
     updateShare,
     getSharedDocument,

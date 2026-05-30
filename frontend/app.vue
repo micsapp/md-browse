@@ -20,6 +20,7 @@
           </div>
           <template v-if="auth.user">
             <button class="nav-btn" @click="uploadModal.open(); menuOpen = false">Upload</button>
+            <NuxtLink to="/shares" @click="menuOpen = false">Shares</NuxtLink>
             <NuxtLink to="/tokens" @click="menuOpen = false">Tokens</NuxtLink>
             <NuxtLink v-if="auth.isAdmin" to="/admin" @click="menuOpen = false">Admin</NuxtLink>
             <span class="user">{{ auth.user }}</span>

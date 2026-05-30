@@ -58,6 +58,12 @@
           <input v-if="shareWithCode" v-model="shareCode" placeholder="Access code" class="dv-share-code" />
           <button @click="createNewShare" class="dv-btn dv-btn-accent">Create Link</button>
         </div>
+        <p v-if="slugCheck.message" class="dv-slug-status" :class="slugCheck.ok ? 'dv-slug-ok' : 'dv-slug-bad'">
+          {{ slugCheck.message }}
+          <button v-if="slugCheck.suggestion" type="button" class="dv-suggest-btn" @click="shareSlug = slugCheck.suggestion">
+            Use “{{ slugCheck.suggestion }}”
+          </button>
+        </p>
         <p v-if="shareError" class="dv-share-error">{{ shareError }}</p>
         <div v-if="newShareUrl" class="dv-share-result">
           <div class="dv-share-url-row">
@@ -233,6 +239,7 @@ const newShareUrl = ref('')
 const newShareHasCode = ref(false)
 const copied = ref(false)
 const copiedId = ref(null)
+const slugCheck = reactive({ ok: false, message: '', suggestion: '' })
 
 if (import.meta.client) {
   marked.setOptions({
@@ -248,6 +255,7 @@ watch(() => props.modal.docId, async (id) => {
   pending.value = true
   editing.value = false; showVersions.value = false; showSharePanel.value = false
   versions.value = []; newShareUrl.value = ''; shareError.value = ''; shareSlug.value = ''
+  resetSlugCheck()
   try { doc.value = await api.getDocument(id) }
   catch { doc.value = null }
   finally { pending.value = false }
@@ -331,6 +339,34 @@ function apiErrMessage(e) {
   return e?.data?.error?.message || e?.response?._data?.error?.message || e?.message || 'Request failed.'
 }
 
+function resetSlugCheck() { slugCheck.ok = false; slugCheck.message = ''; slugCheck.suggestion = '' }
+function apiErrSuggestion(e) {
+  return e?.data?.error?.suggestion || e?.response?._data?.error?.suggestion || ''
+}
+
+// Debounced live availability check for the custom slug while typing.
+let slugCheckTimer = null
+watch(shareSlug, (val) => {
+  resetSlugCheck()
+  if (slugCheckTimer) clearTimeout(slugCheckTimer)
+  const slug = val.trim()
+  if (!slug) return
+  slugCheck.message = 'Checking…'
+  slugCheckTimer = setTimeout(async () => {
+    try {
+      const res = await api.checkShareSlug(slug)
+      if (slug !== shareSlug.value.trim()) return
+      if (res.available) {
+        slugCheck.ok = true; slugCheck.message = '✓ Available'; slugCheck.suggestion = ''
+      } else {
+        slugCheck.ok = false; slugCheck.message = res.reason || 'Not available'; slugCheck.suggestion = res.suggestion || ''
+      }
+    } catch (e) {
+      slugCheck.ok = false; slugCheck.message = apiErrMessage(e); slugCheck.suggestion = apiErrSuggestion(e)
+    }
+  }, 350)
+})
+
 async function createNewShare() {
   shareError.value = ''
   try {
@@ -341,9 +377,12 @@ async function createNewShare() {
     newShareUrl.value = `${window.location.origin}/share/${res.slug || res.token}`
     newShareHasCode.value = res.has_access_code
     shareCode.value = ''; shareWithCode.value = false; shareSlug.value = ''
+    resetSlugCheck()
     await loadShares()
   } catch (e) {
     shareError.value = apiErrMessage(e)
+    const suggestion = apiErrSuggestion(e)
+    if (suggestion) { slugCheck.ok = false; slugCheck.message = 'That alias is taken.'; slugCheck.suggestion = suggestion }
   }
 }
 async function loadShares() { shares.value = await api.getShares(props.modal.docId) }
@@ -360,13 +399,21 @@ async function renameShare(s) {
     s.slug || ''
   )
   if (next === null) return
-  const trimmed = next.trim()
+  let trimmed = next.trim()
   if (!trimmed && !s.slug) return  // nothing to do
-  try {
-    await api.updateShare(s.id, { slug: trimmed || null })
-    await loadShares()
-  } catch (e) {
-    alert(apiErrMessage(e))
+  while (true) {
+    try {
+      await api.updateShare(s.id, { slug: trimmed || null })
+      await loadShares()
+      return
+    } catch (e) {
+      const suggestion = apiErrSuggestion(e)
+      if (!suggestion) { alert(apiErrMessage(e)); return }
+      const retry = prompt(`${apiErrMessage(e)}\nTry this available alias instead:`, suggestion)
+      if (retry === null) return
+      trimmed = retry.trim()
+      if (!trimmed && !s.slug) return
+    }
   }
 }
 function shareUrl(s) {
@@ -467,6 +514,11 @@ async function copyUrl(s) {
 .dv-share-code { padding: 0.28rem 0.45rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.83rem; width: 130px; background: var(--surface); color: var(--text); }
 .dv-share-slug { padding: 0.28rem 0.45rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.83rem; width: 220px; background: var(--surface); color: var(--text); font-family: monospace; }
 .dv-share-error { color: var(--danger, #c0392b); font-size: 0.8rem; margin: 0 0 0.4rem 0; }
+.dv-slug-status { font-size: 0.78rem; margin: 0 0 0.4rem 0; }
+.dv-slug-ok { color: var(--success); }
+.dv-slug-bad { color: var(--danger); }
+.dv-suggest-btn { margin-left: 0.4rem; padding: 0.08rem 0.4rem; font-size: 0.72rem; background: var(--surface2); color: var(--accent); border: 1px solid var(--border2); border-radius: 4px; cursor: pointer; }
+.dv-suggest-btn:hover { border-color: var(--accent); }
 .dv-share-result { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 0.45rem; margin-bottom: 0.4rem; }
 .dv-share-url-row { display: flex; gap: 0.3rem; }
 .dv-share-url-row input { flex: 1; padding: 0.28rem 0.4rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.8rem; font-family: monospace; background: var(--surface2); color: var(--text); }

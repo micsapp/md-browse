@@ -1357,6 +1357,46 @@ function slugCollides(slug, shares, ignoreShareId = null) {
   return null;
 }
 
+// Turn arbitrary text (e.g. a document title) into a valid slug stem.
+function sanitizeToSlug(text) {
+  return String(text || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}
+
+// Given a desired (possibly taken) slug, return the nearest available variant.
+// Appends -2, -3, … to the stem, respecting the 64-char limit and skipping any
+// slug OR token already in use.
+function suggestSlug(base, shares, ignoreShareId = null) {
+  const taken = new Set();
+  for (const [sid, s] of Object.entries(shares)) {
+    if (sid === ignoreShareId) continue;
+    if (s.slug) taken.add(s.slug);
+    if (s.token) taken.add(s.token);
+  }
+  let root = base && SHARE_SLUG_RE.test(base) ? base : sanitizeToSlug(base);
+  if (!root) root = 'share';
+  if (!taken.has(root)) return root;
+  for (let i = 2; i < 10000; i++) {
+    const suffix = `-${i}`;
+    const stem = root.slice(0, 64 - suffix.length);
+    const cand = `${stem}${suffix}`;
+    if (!taken.has(cand)) return cand;
+  }
+  return `${root.slice(0, 57)}-${crypto.randomBytes(3).toString('hex')}`;
+}
+
+// 409 response that also offers an available alternative slug.
+function sendSlugConflict(res, message, slug, shares, ignoreShareId, requestId) {
+  return res.status(409).json({
+    error: { code: 'conflict', message, suggestion: suggestSlug(slug, shares, ignoreShareId), request_id: requestId }
+  });
+}
+
 app.post('/api/v1/documents/:id/share', agentTokenMiddleware, requireScope('documents:write'), async (req, res) => {
   try {
     const { id } = req.params;
@@ -1371,7 +1411,7 @@ app.post('/api/v1/documents/:id/share', agentTokenMiddleware, requireScope('docu
       const err = validateShareSlug(slug);
       if (err) return sendError(res, 400, 'validation_error', err, null, req.requestId);
       const collide = slugCollides(slug, shares);
-      if (collide) return sendError(res, 409, 'conflict', collide, null, req.requestId);
+      if (collide) return sendSlugConflict(res, collide, slug, shares, null, req.requestId);
       slugClean = slug;
     }
     const shareId = uuidv4();
@@ -1412,7 +1452,7 @@ app.patch('/api/v1/shares/:shareId', agentTokenMiddleware, requireScope('documen
         const err = validateShareSlug(slug);
         if (err) return sendError(res, 400, 'validation_error', err, null, req.requestId);
         const collide = slugCollides(slug, shares, shareId);
-        if (collide) return sendError(res, 409, 'conflict', collide, null, req.requestId);
+        if (collide) return sendSlugConflict(res, collide, slug, shares, shareId, req.requestId);
         share.slug = slug;
       }
     }
@@ -1482,6 +1522,30 @@ app.get('/api/v1/shares', agentTokenMiddleware, requireScope('documents:read'), 
       }))
       .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
     res.json({ data: list });
+  } catch (err) {
+    sendError(res, 500, 'internal_error', err.message, null, req.requestId);
+  }
+});
+
+// Check whether a desired slug is available, and always offer a suggestion.
+// Used by the UI to give live feedback while typing a custom URL.
+app.get('/api/v1/shares/slug-check', agentTokenMiddleware, requireScope('documents:read'), async (req, res) => {
+  try {
+    const raw = req.query.slug;
+    if (raw === undefined || raw === null || raw === '') {
+      return sendError(res, 400, 'validation_error', 'slug query parameter is required', null, req.requestId);
+    }
+    const slug = String(raw);
+    const shares = await readJson(SHARES_FILE, {});
+    const formatErr = validateShareSlug(slug);
+    if (formatErr) {
+      return res.json({ slug, valid: false, available: false, reason: formatErr, suggestion: suggestSlug(slug, shares) });
+    }
+    const collide = slugCollides(slug, shares);
+    if (collide) {
+      return res.json({ slug, valid: true, available: false, reason: collide, suggestion: suggestSlug(slug, shares) });
+    }
+    return res.json({ slug, valid: true, available: true, suggestion: null });
   } catch (err) {
     sendError(res, 500, 'internal_error', err.message, null, req.requestId);
   }

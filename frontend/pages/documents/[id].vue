@@ -48,6 +48,12 @@
           <input v-if="shareWithCode" v-model="shareCode" placeholder="Enter access code" class="share-code-input" />
           <button @click="createNewShare" class="btn-create-share">Create Share Link</button>
         </div>
+        <p v-if="slugCheck.message" class="slug-status" :class="slugCheck.ok ? 'slug-ok' : 'slug-bad'">
+          {{ slugCheck.message }}
+          <button v-if="slugCheck.suggestion" type="button" class="suggest-btn" @click="shareSlug = slugCheck.suggestion">
+            Use “{{ slugCheck.suggestion }}”
+          </button>
+        </p>
         <p v-if="shareError" class="share-error">{{ shareError }}</p>
         <div v-if="newShareUrl" class="share-result">
           <p>Share URL:</p>
@@ -118,10 +124,38 @@ const shareError = ref('')
 const newShareUrl = ref('')
 const newShareHasCode = ref(false)
 const copied = ref(false)
+const slugCheck = reactive({ ok: false, message: '', suggestion: '' })
 
 function apiErrMessage(e) {
   return e?.data?.error?.message || e?.response?._data?.error?.message || e?.message || 'Request failed.'
 }
+function apiErrSuggestion(e) {
+  return e?.data?.error?.suggestion || e?.response?._data?.error?.suggestion || ''
+}
+function resetSlugCheck() { slugCheck.ok = false; slugCheck.message = ''; slugCheck.suggestion = '' }
+
+// Debounced live availability check for the custom slug while typing.
+let slugCheckTimer = null
+watch(shareSlug, (val) => {
+  resetSlugCheck()
+  if (slugCheckTimer) clearTimeout(slugCheckTimer)
+  const slug = val.trim()
+  if (!slug) return
+  slugCheck.message = 'Checking…'
+  slugCheckTimer = setTimeout(async () => {
+    try {
+      const res = await api.checkShareSlug(slug)
+      if (slug !== shareSlug.value.trim()) return
+      if (res.available) {
+        slugCheck.ok = true; slugCheck.message = '✓ Available'; slugCheck.suggestion = ''
+      } else {
+        slugCheck.ok = false; slugCheck.message = res.reason || 'Not available'; slugCheck.suggestion = res.suggestion || ''
+      }
+    } catch (e) {
+      slugCheck.ok = false; slugCheck.message = apiErrMessage(e); slugCheck.suggestion = apiErrSuggestion(e)
+    }
+  }, 350)
+})
 
 watch(editing, (val) => {
   if (val && doc.value) {
@@ -224,9 +258,12 @@ async function createNewShare() {
     shareCode.value = ''
     shareWithCode.value = false
     shareSlug.value = ''
+    resetSlugCheck()
     await loadShares()
   } catch (e) {
     shareError.value = apiErrMessage(e)
+    const suggestion = apiErrSuggestion(e)
+    if (suggestion) { slugCheck.ok = false; slugCheck.message = 'That alias is taken.'; slugCheck.suggestion = suggestion }
   }
 }
 
@@ -248,13 +285,21 @@ async function renameShare(s) {
     s.slug || ''
   )
   if (next === null) return
-  const trimmed = next.trim()
+  let trimmed = next.trim()
   if (!trimmed && !s.slug) return
-  try {
-    await api.updateShare(s.id, { slug: trimmed || null })
-    await loadShares()
-  } catch (e) {
-    alert(apiErrMessage(e))
+  while (true) {
+    try {
+      await api.updateShare(s.id, { slug: trimmed || null })
+      await loadShares()
+      return
+    } catch (e) {
+      const suggestion = apiErrSuggestion(e)
+      if (!suggestion) { alert(apiErrMessage(e)); return }
+      const retry = prompt(`${apiErrMessage(e)}\nTry this available alias instead:`, suggestion)
+      if (retry === null) return
+      trimmed = retry.trim()
+      if (!trimmed && !s.slug) return
+    }
   }
 }
 
@@ -319,6 +364,11 @@ watch(showSharePanel, (val) => { if (val) loadShares() })
 .btn-copy { padding: 0.35rem 0.6rem; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; min-width: 50px; }
 .share-note { color: var(--text3); font-size: 0.82rem; margin-top: 0.3rem; }
 .share-error { color: var(--danger, #c0392b); font-size: 0.85rem; margin: 0 0 0.5rem 0; }
+.slug-status { font-size: 0.82rem; margin: 0 0 0.5rem 0; }
+.slug-ok { color: var(--success); }
+.slug-bad { color: var(--danger); }
+.suggest-btn { margin-left: 0.4rem; padding: 0.1rem 0.45rem; font-size: 0.75rem; background: var(--surface2); color: var(--accent); border: 1px solid var(--border2); border-radius: 4px; cursor: pointer; }
+.suggest-btn:hover { border-color: var(--accent); }
 .share-list { border-top: 1px solid var(--border); padding-top: 0.5rem; }
 .share-item { display: flex; gap: 0.75rem; align-items: center; padding: 0.4rem 0; font-size: 0.85rem; }
 .share-token { flex: 1; font-family: monospace; color: var(--text2); }
