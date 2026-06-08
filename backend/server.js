@@ -1655,7 +1655,7 @@ app.get('/api/v1/documents/:id/assets/:filename', async (req, res) => {
 });
 
 // Upload assets for a document
-app.post('/api/v1/documents/:id/assets', authMiddleware, assetUpload.array('files', 20), async (req, res) => {
+app.post('/api/v1/documents/:id/assets', agentTokenMiddleware, requireScope('documents:write'), assetUpload.array('files', 20), async (req, res) => {
   try {
     const { id } = req.params;
     const metadata = await readJson(META_FILE, {});
@@ -1706,7 +1706,7 @@ const folderAssetUpload = multer({
 });
 
 // Upload assets to a folder
-app.post('/api/v1/folders/:folderId/assets', authMiddleware, folderAssetUpload.array('files', 20), async (req, res) => {
+app.post('/api/v1/folders/:folderId/assets', agentTokenMiddleware, requireScope('documents:write'), folderAssetUpload.array('files', 20), async (req, res) => {
   try {
     const { folderId } = req.params;
     // Validate folder exists (unless 'root')
@@ -1719,7 +1719,7 @@ app.post('/api/v1/folders/:folderId/assets', authMiddleware, folderAssetUpload.a
     if (!req.files?.length) {
       return sendError(res, 400, 'validation_error', 'No files uploaded', null, req.requestId);
     }
-    await appendAuditLog('user', req.user.username, 'upload_folder_assets', 'folder', folderId, {
+    await appendAuditLog(req.actorType, req.actorId, 'upload_folder_assets', 'folder', folderId, {
       files: req.files.map(f => f.originalname)
     });
     res.json({ uploaded: req.files.map(f => ({ name: f.originalname, stored: f.filename, size: f.size })) });
@@ -1765,7 +1765,7 @@ app.get('/api/v1/folders/:folderId/assets/:filename', async (req, res) => {
 });
 
 // Delete a folder asset
-app.delete('/api/v1/folders/:folderId/assets/:filename', authMiddleware, async (req, res) => {
+app.delete('/api/v1/folders/:folderId/assets/:filename', agentTokenMiddleware, requireScope('documents:write'), async (req, res) => {
   try {
     const { folderId, filename } = req.params;
     const dirKey = folderId === 'root' ? '_root' : folderId;
@@ -1773,7 +1773,7 @@ app.delete('/api/v1/folders/:folderId/assets/:filename', authMiddleware, async (
     const assetPath = path.join(FOLDER_ASSETS_DIR, dirKey, safeName);
     await fs.access(assetPath);
     await fs.unlink(assetPath);
-    await appendAuditLog('user', req.user.username, 'delete_folder_asset', 'folder', folderId, { file: safeName });
+    await appendAuditLog(req.actorType, req.actorId, 'delete_folder_asset', 'folder', folderId, { file: safeName });
     res.json({ deleted: safeName });
   } catch {
     sendError(res, 404, 'not_found', 'Asset not found', null, req.requestId);
