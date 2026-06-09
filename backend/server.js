@@ -122,9 +122,27 @@ function slugifyHeading(text) {
     .replace(/\s/g, '-');
 }
 
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function renderMarkdown(md, docId) {
   const renderer = new marked.Renderer();
   const origImage = renderer.image.bind(renderer);
+  // Emit ```mermaid fenced blocks as <pre class="mermaid"> so the client can
+  // render them with mermaid.js; everything else uses the default code renderer.
+  const origCode = renderer.code.bind(renderer);
+  renderer.code = function (code, infostring, escaped) {
+    const lang = (infostring || '').match(/^\S*/)?.[0] || '';
+    if (lang === 'mermaid') {
+      return `<pre class="mermaid">${escapeHtml(code)}</pre>\n`;
+    }
+    return origCode(code, infostring, escaped);
+  };
   renderer.image = function (token) {
     if (docId && token.href && !token.href.startsWith('http') && !token.href.startsWith('data:') && !token.href.startsWith('/')) {
       token.href = `/api/v1/documents/${docId}/assets/${encodeURIComponent(token.href)}`;

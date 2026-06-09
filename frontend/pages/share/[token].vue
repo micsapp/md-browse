@@ -24,7 +24,7 @@
         </div>
         <div class="shared-badge">Shared document</div>
       </header>
-      <div class="content" v-html="renderedContent" />
+      <div ref="contentEl" class="content" v-html="renderedContent" />
     </article>
   </div>
 </template>
@@ -39,6 +39,8 @@ definePageMeta({ layout: false, middleware: [] })
 const route = useRoute()
 const api = useApi()
 
+const { render: renderMermaid } = useMermaid()
+const contentEl = ref(null)
 const doc = ref(null)
 const error = ref(false)
 const errorMessage = ref('')
@@ -76,6 +78,12 @@ function mdToHtml(md) {
     if (seen[id] !== undefined) { seen[id]++; id = `${id}-${seen[id]}` } else { seen[id] = 0 }
     return `<h${level} id="${id}">${text}</h${level}>\n`
   }
+  const origCode = renderer.code.bind(renderer)
+  renderer.code = function (code, infostring, escaped) {
+    const lang = (infostring || '').match(/^\S*/)?.[0] || ''
+    if (lang === 'mermaid') return `<pre class="mermaid">${code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>\n`
+    return origCode(code, infostring, escaped)
+  }
   return marked(fixSvgBlocks(md), { renderer })
 }
 
@@ -88,6 +96,11 @@ const renderedContent = computed(() => {
       `$1/api/v1/documents/${doc.value.id}/assets/$2$3`)
   }
   return DOMPurify.sanitize(html)
+})
+
+watch(renderedContent, async () => {
+  await nextTick()
+  renderMermaid(contentEl.value)
 })
 
 function formatDate(date) { return date ? new Date(date).toLocaleDateString() : '' }

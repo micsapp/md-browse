@@ -95,7 +95,7 @@
           <button :class="{ active: editorMode === 'preview' }" @click="editorMode = 'preview'">Preview</button>
         </div>
         <textarea v-if="editorMode === 'source'" v-model="editForm.content_md" class="dv-textarea" />
-        <div v-else class="dv-content dv-preview" v-html="editPreviewHtml" @click="onContentClick" />
+        <div v-else ref="previewEl" class="dv-content dv-preview" v-html="editPreviewHtml" @click="onContentClick" />
         <div class="dv-editor-actions">
           <input v-model="editForm.change_note" placeholder="Change note (optional)" />
           <button @click="saveEdit" class="dv-btn dv-btn-accent">Save</button>
@@ -103,7 +103,7 @@
       </div>
 
       <!-- Rendered markdown -->
-      <div v-else class="dv-content" v-html="renderedContent" @click="onContentClick" />
+      <div v-else ref="contentEl" class="dv-content" v-html="renderedContent" @click="onContentClick" />
     </div>
 
     <!-- Resize handles (desktop only, not in fullscreen) -->
@@ -129,6 +129,11 @@ const viewer = useDocViewer()
 const api = useApi()
 const auth = useAuth()
 const router = useRouter()
+const { render: renderMermaid } = useMermaid()
+
+// Refs to the rendered-content containers, used to scope mermaid diagram rendering.
+const contentEl = ref(null)
+const previewEl = ref(null)
 
 // ── Fullscreen ────────────────────────────────────────────────────────────────
 const isFullscreen = ref(false)
@@ -317,6 +322,12 @@ function mdToHtml(md) {
     if (seen[id] !== undefined) { seen[id]++; id = `${id}-${seen[id]}` } else { seen[id] = 0 }
     return `<h${level} id="${id}">${text}</h${level}>\n`
   }
+  const origCode = renderer.code.bind(renderer)
+  renderer.code = function (code, infostring, escaped) {
+    const lang = (infostring || '').match(/^\S*/)?.[0] || ''
+    if (lang === 'mermaid') return `<pre class="mermaid">${code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>\n`
+    return origCode(code, infostring, escaped)
+  }
   return marked(fixSvgBlocks(md), { renderer })
 }
 
@@ -334,6 +345,16 @@ const editPreviewHtml = computed(() => {
   html = html.replace(/(<img\s[^>]*src=")(?!https?:|data:|\/)(.*?)(")/g,
     `$1/api/v1/documents/${props.modal.docId}/assets/$2$3`)
   return DOMPurify.sanitize(html)
+})
+
+// Render any mermaid diagrams once the markdown HTML is in the DOM.
+watch(renderedContent, async () => {
+  await nextTick()
+  renderMermaid(contentEl.value)
+}, { immediate: true })
+watch(editPreviewHtml, async () => {
+  await nextTick()
+  renderMermaid(previewEl.value)
 })
 
 function formatDate(d) { return d ? new Date(d).toLocaleDateString() : '' }
