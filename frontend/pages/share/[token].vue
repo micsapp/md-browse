@@ -61,9 +61,27 @@ function fixSvgBlocks(md) {
   return md.replace(/<svg[\s\S]*?<\/svg>/gi, m => m.replace(/\n\s*\n/g, '\n'))
 }
 
+// GitHub-style heading slug so in-page anchor links (#section) work.
+function slugifyHeading(text) {
+  return String(text).trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-')
+}
+
+// Render markdown with id attributes on headings (marked v11 strips them by default).
+function mdToHtml(md) {
+  const renderer = new marked.Renderer()
+  const seen = Object.create(null)
+  renderer.heading = function (text, level, raw) {
+    let id = slugifyHeading(raw)
+    if (!id) return `<h${level}>${text}</h${level}>\n`
+    if (seen[id] !== undefined) { seen[id]++; id = `${id}-${seen[id]}` } else { seen[id] = 0 }
+    return `<h${level} id="${id}">${text}</h${level}>\n`
+  }
+  return marked(fixSvgBlocks(md), { renderer })
+}
+
 const renderedContent = computed(() => {
   if (!doc.value) return ''
-  let html = doc.value.content_html || marked(fixSvgBlocks(doc.value.content_md || ''))
+  let html = doc.value.content_html || mdToHtml(doc.value.content_md || '')
   // Rewrite relative image srcs to asset API (doc.id comes from backend response)
   if (doc.value.id) {
     html = html.replace(/(<img\s[^>]*src=")(?!https?:|data:|\/)(.*?)(")/g,

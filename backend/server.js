@@ -113,6 +113,15 @@ function fixSvgBlocks(markdown) {
   return markdown.replace(/<svg[\s\S]*?<\/svg>/gi, m => m.replace(/\n\s*\n/g, '\n'));
 }
 
+// GitHub-style heading slug: lowercase, strip punctuation, spaces -> hyphens.
+function slugifyHeading(text) {
+  return String(text)
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, '')
+    .replace(/\s/g, '-');
+}
+
 function renderMarkdown(md, docId) {
   const renderer = new marked.Renderer();
   const origImage = renderer.image.bind(renderer);
@@ -121,6 +130,18 @@ function renderMarkdown(md, docId) {
       token.href = `/api/v1/documents/${docId}/assets/${encodeURIComponent(token.href)}`;
     }
     return origImage(token);
+  };
+  // Add id attributes to headings so in-page anchor links (#section) work.
+  // marked v11 renderer signature: heading(text, level, raw)
+  const seen = Object.create(null);
+  renderer.heading = function (text, level, raw) {
+    let id = slugifyHeading(raw);
+    if (id) {
+      if (seen[id] !== undefined) { seen[id]++; id = `${id}-${seen[id]}`; }
+      else { seen[id] = 0; }
+      return `<h${level} id="${id}">${text}</h${level}>\n`;
+    }
+    return `<h${level}>${text}</h${level}>\n`;
   };
   return marked(fixSvgBlocks(md), { renderer });
 }

@@ -95,7 +95,7 @@
           <button :class="{ active: editorMode === 'preview' }" @click="editorMode = 'preview'">Preview</button>
         </div>
         <textarea v-if="editorMode === 'source'" v-model="editForm.content_md" class="dv-textarea" />
-        <div v-else class="dv-content dv-preview" v-html="editPreviewHtml" />
+        <div v-else class="dv-content dv-preview" v-html="editPreviewHtml" @click="onContentClick" />
         <div class="dv-editor-actions">
           <input v-model="editForm.change_note" placeholder="Change note (optional)" />
           <button @click="saveEdit" class="dv-btn dv-btn-accent">Save</button>
@@ -103,7 +103,7 @@
       </div>
 
       <!-- Rendered markdown -->
-      <div v-else class="dv-content" v-html="renderedContent" />
+      <div v-else class="dv-content" v-html="renderedContent" @click="onContentClick" />
     </div>
 
     <!-- Resize handles (desktop only, not in fullscreen) -->
@@ -165,6 +165,20 @@ const modalStyle = computed(() => {
 
 function onModalMousedown() {
   viewer.focusModal(props.modal.uid)
+}
+
+// In-page anchor links (#section) must scroll within the modal's own scroll
+// container, not trigger native window/route hash navigation.
+function onContentClick(e) {
+  const a = e.target.closest('a[href^="#"]')
+  if (!a) return
+  const id = decodeURIComponent((a.getAttribute('href') || '').slice(1))
+  if (!id) return
+  const target = e.currentTarget.querySelector(`[id="${CSS.escape(id)}"]`)
+  if (target) {
+    e.preventDefault()
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 }
 
 // ── Drag to move ──────────────────────────────────────────────────────────────
@@ -288,9 +302,27 @@ function fixSvgBlocks(md) {
   return md.replace(/<svg[\s\S]*?<\/svg>/gi, m => m.replace(/\n\s*\n/g, '\n'))
 }
 
+// GitHub-style heading slug so in-page anchor links (#section) work.
+function slugifyHeading(text) {
+  return String(text).trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-')
+}
+
+// Render markdown with id attributes on headings (marked v11 strips them by default).
+function mdToHtml(md) {
+  const renderer = new marked.Renderer()
+  const seen = Object.create(null)
+  renderer.heading = function (text, level, raw) {
+    let id = slugifyHeading(raw)
+    if (!id) return `<h${level}>${text}</h${level}>\n`
+    if (seen[id] !== undefined) { seen[id]++; id = `${id}-${seen[id]}` } else { seen[id] = 0 }
+    return `<h${level} id="${id}">${text}</h${level}>\n`
+  }
+  return marked(fixSvgBlocks(md), { renderer })
+}
+
 const renderedContent = computed(() => {
   if (!doc.value) return ''
-  let html = doc.value.content_html || marked(fixSvgBlocks(doc.value.content_md || ''))
+  let html = doc.value.content_html || mdToHtml(doc.value.content_md || '')
   html = html.replace(/(<img\s[^>]*src=")(?!https?:|data:|\/)(.*?)(")/g,
     `$1/api/v1/documents/${props.modal.docId}/assets/$2$3`)
   return DOMPurify.sanitize(html)
@@ -298,7 +330,7 @@ const renderedContent = computed(() => {
 
 const editPreviewHtml = computed(() => {
   if (!editForm.value.content_md) return ''
-  let html = marked(fixSvgBlocks(editForm.value.content_md))
+  let html = mdToHtml(editForm.value.content_md)
   html = html.replace(/(<img\s[^>]*src=")(?!https?:|data:|\/)(.*?)(")/g,
     `$1/api/v1/documents/${props.modal.docId}/assets/$2$3`)
   return DOMPurify.sanitize(html)
