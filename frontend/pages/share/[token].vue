@@ -131,7 +131,7 @@ onMounted(() => loadDoc())
 </script>
 
 <style scoped>
-.share-page { max-width: 800px; margin: 2rem auto; padding: 0 1.5rem; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: var(--text); }
+.share-page { max-width: none; margin: 0; padding: 1.5rem 2rem; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: var(--text); }
 .loading, .error { text-align: center; padding: 2rem; color: var(--text3); }
 .error { color: var(--danger); }
 .doc-header { margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }

@@ -52,7 +52,7 @@
       </div>
     </div>
 
-    <main class="main">
+    <main class="main" :class="{ 'main--full': isSharePage }">
       <NuxtPage />
     </main>
   </div>
@@ -206,6 +206,7 @@ select option { background: var(--surface); color: var(--text); }
 .version-tag { font-size: 0.7rem; color: rgba(255,255,255,0.35); letter-spacing: 0.03em; }
 
 .main { padding: 1.5rem; max-width: 1200px; margin: 0 auto; }
+.main--full { max-width: none; padding: 0; }
 
 .pwa-install-banner {
   background: var(--accent);
