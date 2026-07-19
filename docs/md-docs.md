@@ -104,8 +104,8 @@ Notes:
 | Item | Sync method | Direction |
 |---|---|---|
 | `backend/data/` (JSON + `uploads/`) | lsyncd (live) + cron rsync (fallback) | primary → replicas |
-| Frontend build `frontend/.output/public` | rsync on deploy | primary → replicas |
-| Backend code + `node_modules` | rsync on deploy (`deploy.sh` extension) | primary → replicas |
+| Frontend build `frontend/.output/public` | `./deploy-mirrors.sh` (rsync) | primary → replicas |
+| Backend code (deps installed per-mirror) | `./deploy-mirrors.sh` (rsync + npm install) | primary → replicas |
 | `JWT_SECRET` (must be **the same value everywhere** or logins die on failover / mixed routing) | one-time manual copy into each mirror's systemd env file | manual |
 | nginx site config (primary vs replica variant) | reference copies in repo: `nginx/md-browse.conf` (primary), `infra/replica-ec2/nginx-md-browse-replica.conf`; installed per role | manual/deploy |
 
@@ -340,6 +340,32 @@ Same for `cloudflared tunnel info <uuid>`.
   site.
 - **Replica-outage test (2026-07-18):** stopped the EC2 mirror's `cloudflared-md` connector and backend. All `md.micstec.com` traffic (both regions) shifted to the primary within ~15 s; reads, homepage, **and writes** all kept working — a replica outage is invisible to users. Restored cleanly; tunnel back to 2 connectors.
 - **Failover test (2026-07-18):** stopped the primary's `cloudflared-md` connector *and* its backend. Within ~15 s Cloudflare routed all `md.micstec.com` traffic — including requests from the primary's own network — to the EC2 replica; reads and the frontend stayed 200 throughout. Writes returned 502 for the duration (single-writer design). After restarting, the tunnel showed 2 connectors again and the write path recovered (probe 401 from primary).
+
+## 12. Feature / deploy workflow (`deploy-mirrors.sh`)
+
+The repo root has **`deploy-mirrors.sh`** (added 2026-07-18, tested end-to-end):
+run it **on the primary from the repo root** after merging to `main` and it
+deploys the working tree to the primary and every mirror, then verifies the
+fleet. `--build` also rebuilds the frontend first; `--verify` runs only the
+checks. Verification = health on primary/each mirror/LB, a write-routing probe
+(must reach the primary, 401), and a data-sync heartbeat file that must appear
+on every mirror within 6 s. Adding a mirror = append to the three `MIRROR_*`
+arrays at the top (alongside the lsyncd `mirrors` list — §6.1).
+
+Workflow rules that keep deploys safe (details in §2–§4):
+
+1. Develop on a branch — the primary's working tree **is** production
+   (PM2 runs from it; nginx serves its frontend build). Never point dev code
+   at the real `backend/data/`.
+2. Mutating endpoints must never be `GET` — replica nginx routes by method,
+   and a state-changing GET would execute on a replica and be erased by sync.
+3. Data-format changes must be read-backward-compatible for one deploy cycle
+   (or deploy replicas first); snapshot `backend/data/` before any migration:
+   `tar czf ~/data-pre-deploy-$(date +%F).tgz -C ~/md-browse/backend data`.
+4. New env vars go into `/etc/md-browse/env` on **every** mirror.
+5. Rollback = `git revert` + rerun `./deploy-mirrors.sh` (code is fast to roll
+   back; migrated data is not — hence rule 3).
+6. Push `main` after a verified deploy so GitHub matches what is live.
 
 ## 11. Review decisions (resolved 2026-07-18)
 
