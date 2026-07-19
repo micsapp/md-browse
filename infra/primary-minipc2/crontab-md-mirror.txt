@@ -1,0 +1,2 @@
+*/5 * * * * rsync -az --delete -e "ssh -i /home/mli/.ssh/mdsync_ed25519 -o StrictHostKeyChecking=accept-new" /home/mli/md-browse/backend/data/ mli@54.165.17.203:/ >/dev/null 2>&1 # md-mirror-fallback
+7 3 * * * /home/mli/md-browse/sync-verify.sh # md-mirror-verify

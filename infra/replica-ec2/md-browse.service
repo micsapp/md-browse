@@ -1,0 +1,18 @@
+[Unit]
+Description=md-browse backend (md-docs mirror replica)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mli
+Group=mli
+WorkingDirectory=/home/mli/md-browse/backend
+EnvironmentFile=/etc/md-browse/env
+ExecStart=/home/mli/.nvm/versions/node/v25.9.0/bin/node /home/mli/md-browse/backend/server.js
+Restart=always
+RestartSec=3
+MemoryMax=400M
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,7 @@
+tunnel: b7d99817-6650-428c-94ea-733dfbe64702
+credentials-file: /etc/cloudflared-md/b7d99817-6650-428c-94ea-733dfbe64702.json
+
+ingress:
+  - hostname: md.micstec.com
+    service: http://localhost:8090
+  - service: http_status:404

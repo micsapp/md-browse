@@ -1,0 +1,7 @@
+tunnel: 5771f334-868a-4391-9079-8a75e5199c89
+credentials-file: /etc/cloudflared-md-docs2/5771f334-868a-4391-9079-8a75e5199c89.json
+
+ingress:
+  - hostname: md-docs2.micstec.com
+    service: http://localhost:8090
+  - service: http_status:404

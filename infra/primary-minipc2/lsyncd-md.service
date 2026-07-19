@@ -1,0 +1,11 @@
+[Unit]
+Description=lsyncd md-docs mirror replication
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/lsyncd -nodaemon /etc/lsyncd/lsyncd.conf.lua
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

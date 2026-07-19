@@ -1,0 +1,12 @@
+[Unit]
+Description=Cloudflare Tunnel for md-docs2.micstec.com (direct URL of md mirror 2)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/cloudflared --config /etc/cloudflared-md-docs2/config.yml tunnel run
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
