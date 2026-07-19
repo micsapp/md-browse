@@ -107,7 +107,7 @@ Notes:
 | Frontend build `frontend/.output/public` | rsync on deploy | primary → replicas |
 | Backend code + `node_modules` | rsync on deploy (`deploy.sh` extension) | primary → replicas |
 | `JWT_SECRET` (must be **the same value everywhere** or logins die on failover / mixed routing) | one-time manual copy into each mirror's systemd env file | manual |
-| nginx site config (primary vs replica variant) | kept in repo `md-browse/nginx/`, installed per role | manual/deploy |
+| nginx site config (primary vs replica variant) | reference copies in repo: `nginx/md-browse.conf` (primary), `infra/replica-ec2/nginx-md-browse-replica.conf`; installed per role | manual/deploy |
 
 > ⚠️ Action item regardless of mirroring: the primary currently runs with the
 > **default hard-coded JWT secret**. Generate a real secret
@@ -286,6 +286,16 @@ Everything from §2–§5 is live. Deviations and concrete values:
 | Sync SSH | rrsync jail | Key `~/.ssh/mdsync_ed25519` (primary) → EC2 `authorized_keys` entry `command="/usr/bin/rrsync /home/mli/md-browse/backend/data",restrict` |
 | Fallback | cron | Primary crontab: 5-min rsync (`# md-mirror-fallback`) + nightly 03:07 `sync-verify.sh` (`# md-mirror-verify`) logging to `/var/log/md-sync-verify.log` |
 | Tunnel | `md` | UUID `b7d99817-6650-428c-94ea-733dfbe64702`; creds + config under `/etc/cloudflared-md/` on both hosts; service `cloudflared-md.service` on both (primary → localhost:80, EC2 → localhost:8090) |
+
+**Config copies in the repo (`infra/`):** every live config file above has a
+reference copy committed to the md-browse repo — `infra/primary-minipc2/`
+(lsyncd config + unit, `md` connector, cron lines) and `infra/replica-ec2/`
+(replica nginx, backend unit, `md` + `md-docs2` connectors), with
+`infra/README.md` mapping each file to its `/etc/...` deploy target per host.
+Secrets are excluded (env file with `JWT_SECRET`, tunnel credential JSONs,
+`mdsync` SSH key); the README documents how to recreate them. Note these are
+reference copies, not config management — the hosts stay authoritative, so
+re-copy into `infra/` after any live edit.
 
 **Gotcha worth remembering:** `cloudflared tunnel route dns md md.micstec.com` on the
 primary attached the CNAME to the *default* tunnel from `~/.cloudflared/config.yml`
