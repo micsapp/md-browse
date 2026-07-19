@@ -325,6 +325,19 @@ Same for `cloudflared tunnel info <uuid>`.
 - Data sync: file created on primary appeared on replica in ≤6 s; deletion propagated too; `sync-verify.sh` reports OK.
 - `https://md.micstec.com/` serves the app (200); `/api/health` 200 on both paths. (`/favicon.ico` 404s — pre-existing on the primary as well, not a mirror defect.)
 - **Document-lifecycle sync test (2026-07-18):** uploaded a real doc through `md.micstec.com` (JWT-authenticated, multipart) — write forwarded to primary, file + metadata appeared on the replica in ≤8 s, and the replica served it locally via `md-docs2.micstec.com` with matching checksum. API delete (a *soft* delete by design — sets `deleted_at`, keeps the file for version history) also propagated: replica returns 404 for the doc. Full read/write/delete cycle works across mirrors.
+- **Share-URL compatibility test (2026-07-18):** all 20 pre-existing shares
+  (created in single-node days) were fetched through `md.micstec.com` — 18
+  return 200; the 2 returning 403 are access-code-protected shares and behave
+  identically on `md-docs.micstec.com`, so nothing regressed. Shares are
+  hostname-independent by construction: the record is just a token in
+  `shares.json` (synced to every mirror) and `GET /api/share/<token>` is a
+  read served by whichever mirror answers — old links keep working on their
+  original hostname and the same token works on any mirror URL. New share
+  links inherit the hostname the user is browsing on, so shares minted via
+  `md.micstec.com` survive any single mirror going down. Unrelated quirk found
+  while testing: Cloudflare 403s requests with a `Python-urllib` user-agent on
+  all hostnames — use a browser-like UA (or curl) when scripting against the
+  site.
 - **Replica-outage test (2026-07-18):** stopped the EC2 mirror's `cloudflared-md` connector and backend. All `md.micstec.com` traffic (both regions) shifted to the primary within ~15 s; reads, homepage, **and writes** all kept working — a replica outage is invisible to users. Restored cleanly; tunnel back to 2 connectors.
 - **Failover test (2026-07-18):** stopped the primary's `cloudflared-md` connector *and* its backend. Within ~15 s Cloudflare routed all `md.micstec.com` traffic — including requests from the primary's own network — to the EC2 replica; reads and the frontend stayed 200 throughout. Writes returned 502 for the duration (single-writer design). After restarting, the tunnel showed 2 connectors again and the write path recovered (probe 401 from primary).
 
