@@ -89,6 +89,13 @@
       </table>
     </div>
 
+    <!-- Pagination -->
+    <div v-if="totalDocs > PAGE_SIZE" class="pagination">
+      <button class="pagination-btn" :disabled="page <= 1" @click="page--">‹ Prev</button>
+      <span class="pagination-info">Page {{ page }} / {{ totalPages }} · {{ totalDocs }} documents</span>
+      <button class="pagination-btn" :disabled="page >= totalPages" @click="page++">Next ›</button>
+    </div>
+
     <!-- ── Move Modal (single or batch) ──────────────────────────────────── -->
     <div v-if="moveDocId || batchMoving" class="modal-overlay" @click.self="moveDocId = null; batchMoving = false">
       <div class="modal">
@@ -209,21 +216,30 @@ const { data: allFolders, refresh: refreshFolders } = await useAsyncData('folder
   try { return await api.getFolders() } catch { return [] }
 }, { default: () => [], server: false })
 
-// Documents filtered by selected folder
+// Documents filtered by selected folder (paginated)
+const PAGE_SIZE = 24
+const page = ref(1)
+const totalDocs = ref(0)
+const totalPages = computed(() => Math.max(1, Math.ceil(totalDocs.value / PAGE_SIZE)))
 const { data: documents, refresh: refreshDocs } = await useAsyncData('documents', async () => {
   if (import.meta.server || !auth.isLoggedIn) return []
   try {
-    const params = {}
+    const params = { page: page.value, page_size: PAGE_SIZE }
     if (selectedFolderId.value === null) params.folder_id = 'root'
     else if (selectedFolderId.value !== undefined) params.folder_id = selectedFolderId.value
-    return await api.getDocuments(params)
+    const res = await api.getDocumentsPaged(params)
+    totalDocs.value = res?.pagination?.total || 0
+    return res?.data || []
   } catch { return [] }
-}, { watch: [selectedFolderId], default: () => [], server: false })
+}, { watch: [selectedFolderId, page], default: () => [], server: false })
+
+// Reset to first page whenever the selected folder changes
+watch(selectedFolderId, () => { page.value = 1 })
 
 // All documents (for folder membership check & folder panel)
 const { data: allDocuments, refresh: refreshAllDocs } = await useAsyncData('all-documents', async () => {
   if (import.meta.server || !auth.isLoggedIn) return []
-  try { return await api.getDocuments({}) } catch { return [] }
+  try { return await api.getDocuments({ page_size: 100 }) } catch { return [] }
 }, { default: () => [], server: false })
 
 // Refresh all data when auth state changes (e.g., after login)
@@ -372,6 +388,13 @@ watch(selectedFolderId, () => refreshFolderAssets(), { immediate: true })
 <style scoped>
 /* ── Page ───────────────────────────────────────────────────────────────── */
 .page { width: 100%; }
+
+/* ── Pagination ─────────────────────────────────────────────────────────── */
+.pagination { display: flex; align-items: center; justify-content: center; gap: 1rem; margin-top: 1rem; }
+.pagination-btn { background: var(--surface); border: 1px solid var(--border2); border-radius: 4px; padding: 0.35rem 0.85rem; cursor: pointer; color: var(--text); }
+.pagination-btn:hover:not(:disabled) { background: var(--hover-bg); }
+.pagination-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.pagination-info { color: var(--text2); font-size: 0.85rem; }
 
 /* ── Main header ────────────────────────────────────────────────────────── */
 .main-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap; }

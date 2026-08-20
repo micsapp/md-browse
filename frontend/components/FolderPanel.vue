@@ -126,7 +126,7 @@ const { data: allFolders, refresh: refreshFolders } = await useAsyncData('fp-fol
 
 const { data: allDocuments, refresh: refreshAllDocs } = await useAsyncData('fp-all-docs', async () => {
   if (import.meta.server || !auth.isLoggedIn) return []
-  try { return await api.getDocuments({}) } catch { return [] }
+  try { return await api.getDocuments({ page_size: 100 }) } catch { return [] }
 }, { default: () => [], server: false })
 
 // Refresh data when auth state changes (e.g., after login)

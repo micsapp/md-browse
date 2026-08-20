@@ -22,6 +22,11 @@ export const useApi = () => {
     return res.data || res
   }
 
+  async function getDocumentsPaged(params = {}) {
+    const query = new URLSearchParams(params).toString()
+    return request(`/v1/documents${query ? '?' + query : ''}`)
+  }
+
   async function getDocument(id) {
     return request(`/v1/documents/${id}`)
   }
@@ -204,6 +209,7 @@ export const useApi = () => {
   return {
     request,
     getDocuments,
+    getDocumentsPaged,
     getDocument,
     createDocument,
     updateDocument,
