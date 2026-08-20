@@ -47,8 +47,8 @@ done
 http_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$1"; }
 
 wait_health() { # wait_health <url> <label>
-    local url="$1" label="$2" code
-    for i in $(seq 1 10); do
+    local url="$1" label="$2" code n
+    for n in $(seq 1 10); do
         code=$(http_code "$url") || true
         [ "$code" = "200" ] && { info "$label healthy (200)"; return 0; }
         sleep 2
@@ -66,7 +66,7 @@ if ! $VERIFY_ONLY; then
 
     if $BUILD_FRONTEND; then
         info "building frontend…"
-        (cd frontend && npm run build)
+        (cd frontend && npm run generate)
     fi
 
     info "primary: installing backend deps…"
@@ -92,11 +92,16 @@ fi
 
 # ── verify fleet ───────────────────────────────────────────────────────────────
 info "verifying fleet…"
-wait_health "$PRIMARY_URL/api/health" "primary  ($PRIMARY_URL)"
+# Check both the frontend root (/) and the API. The root 200 confirms the static
+# build (index.html) was generated and served; /api/health confirms the backend.
+wait_health "$PRIMARY_URL/" "primary frontend ($PRIMARY_URL)"
+wait_health "$PRIMARY_URL/api/health" "primary api    ($PRIMARY_URL)"
 for i in "${!MIRROR_URL[@]}"; do
-    wait_health "${MIRROR_URL[$i]}/api/health" "mirror   (${MIRROR_URL[$i]})"
+    wait_health "${MIRROR_URL[$i]}/" "mirror frontend (${MIRROR_URL[$i]})"
+    wait_health "${MIRROR_URL[$i]}/api/health" "mirror api     (${MIRROR_URL[$i]})"
 done
-wait_health "$LB_URL/api/health" "LB       ($LB_URL)"
+wait_health "$LB_URL/" "LB frontend ($LB_URL)"
+wait_health "$LB_URL/api/health" "LB api      ($LB_URL)"
 
 # write routing: a bad-credentials login must reach the primary backend (401)
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$LB_URL/api/auth/login" \
