@@ -1,15 +1,59 @@
 <template>
   <div>
-    <h1>Category: {{ category }}</h1>
-    <div class="documents">
-      <div v-for="doc in documents" :key="doc.id" class="doc-card">
-        <h2><a href="#" @click.prevent="docViewer.openDoc(doc.id)">{{ doc.title }}</a></h2>
-        <p class="description">{{ doc.description || 'No description' }}</p>
-        <div class="info">By {{ doc.created_by }} | {{ formatDate(doc.updated_at) }}</div>
+    <div class="workspace-topline">
+      <div class="workspace-topline-crumbs">
+        <NuxtLink to="/categories" class="workspace-topline-crumb">Categories</NuxtLink>
+        <span>/</span>
+        <span class="workspace-topline-crumb current">{{ category }}</span>
       </div>
-      <div v-if="!documents?.length" class="empty">No documents in this category</div>
+      <NuxtLink to="/categories" class="workspace-topline-link">
+        <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-arrow-left"/></svg>
+        <span>All Categories</span>
+      </NuxtLink>
     </div>
-    <NuxtLink to="/categories" class="back">Back to categories</NuxtLink>
+
+    <header class="page-header">
+      <div class="page-header-copy">
+        <p class="page-eyebrow">CATEGORY COLLECTION</p>
+        <h1 class="page-title">{{ category }}</h1>
+        <p class="page-subtitle">Documents filed under the “{{ category }}” category.</p>
+      </div>
+      <div class="catalog-total">
+        <strong>{{ filteredDocs.length }}</strong>
+        <span>{{ filteredDocs.length === 1 ? 'document' : 'documents' }}</span>
+      </div>
+    </header>
+
+    <div v-if="filteredDocs.length" class="docs-grid">
+      <article
+        v-for="doc in filteredDocs"
+        :key="doc.id"
+        class="doc-card surface-card"
+        @click="docViewer.openDoc(doc.id)"
+      >
+        <div class="doc-card-top">
+          <div class="doc-badges">
+            <span class="pill pill-accent">{{ doc.category }}</span>
+            <span v-for="tag in doc.tags" :key="tag" class="pill">#{{ tag }}</span>
+          </div>
+          <NuxtLink :to="`/documents/${doc.id}`" class="btn btn-xs" @click.stop>Open Page</NuxtLink>
+        </div>
+        <h2>
+          <a href="#" @click.prevent.stop="docViewer.openDoc(doc.id)">{{ doc.title }}</a>
+        </h2>
+        <p v-if="doc.description" class="description">{{ doc.description }}</p>
+        <div class="info">
+          <span>By {{ doc.created_by || 'system' }}</span>
+          <span>{{ formatDate(doc.updated_at) }}</span>
+        </div>
+      </article>
+    </div>
+
+    <div v-else class="catalog-empty">
+      <svg class="ui-icon" aria-hidden="true"><use href="#ui-doc"/></svg>
+      <strong>No documents in this category</strong>
+      <span>Try browsing another category or return to all documents.</span>
+    </div>
   </div>
 </template>
 
@@ -17,24 +61,83 @@
 const route = useRoute()
 const api = useApi()
 const docViewer = useDocViewer()
-const category = route.params.category
+const category = computed(() => String(route.params.category || ''))
 
-const { data: documents } = await useAsyncData(`cat-${category}`, () => api.getDocuments({ category }), { default: () => [] })
+const { data: documents } = await useAsyncData(
+  () => `cat-${category.value}`,
+  () => api.getDocuments({ category: category.value, page_size: 200 }),
+  { default: () => [] }
+)
+
+const filteredDocs = computed(() => (documents.value || []).filter(d => d.category === category.value))
 
 function formatDate(date) {
-  return new Date(date).toLocaleDateString()
+  return date ? new Date(date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : ''
 }
 </script>
 
 <style scoped>
-h1 { margin-bottom: 1.5rem; }
-.documents { display: grid; gap: 1rem; }
-.doc-card { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px var(--shadow); }
-.doc-card h2 { margin-bottom: 0.5rem; }
-.doc-card h2 a { color: var(--text); text-decoration: none; cursor: pointer; }
-.doc-card h2 a:hover { color: var(--accent); }
-.description { color: var(--text2); margin-bottom: 0.5rem; }
-.info { font-size: 0.85rem; color: var(--text3); }
-.empty { text-align: center; padding: 2rem; color: var(--text3); }
-.back { display: inline-block; margin-top: 2rem; color: var(--accent); }
+.docs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.doc-card {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: transform 0.16s, border-color 0.16s, box-shadow 0.16s;
+}
+
+.doc-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-md);
+}
+
+.doc-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.doc-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.doc-card h2 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.doc-card h2 a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.doc-card:hover h2 a {
+  color: var(--accent);
+}
+
+.description {
+  color: var(--muted);
+  font-size: 13.5px;
+  margin: 0 0 12px;
+}
+
+.info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
 </style>

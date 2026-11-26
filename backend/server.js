@@ -369,9 +369,9 @@ async function getDocContent(id, meta) {
 // List documents
 app.get('/api/v1/documents', agentTokenMiddleware, requireScope('documents:read'), async (req, res) => {
   try {
-    const { tag, project, q, folder_id, sort_by = 'updated_at', sort_order = 'desc' } = req.query;
+    const { tag, category, project, q, folder_id, sort_by = 'updated_at', sort_order = 'desc' } = req.query;
     const page = Math.max(1, parseInt(req.query.page) || 1);
-    const page_size = Math.min(100, Math.max(1, parseInt(req.query.page_size) || 20));
+    const page_size = Math.min(200, Math.max(1, parseInt(req.query.page_size) || 20));
 
     const metadata = await readJson(META_FILE, {});
     let docs = Object.entries(metadata)
@@ -379,6 +379,7 @@ app.get('/api/v1/documents', agentTokenMiddleware, requireScope('documents:read'
       .map(([id, meta]) => buildDocSummary(id, meta));
 
     if (tag) docs = docs.filter(d => d.tags?.includes(tag));
+    if (category) docs = docs.filter(d => d.category === category);
     if (project) docs = docs.filter(d => d.project === project);
     if (folder_id !== undefined) {
       if (folder_id === 'root' || folder_id === '') {

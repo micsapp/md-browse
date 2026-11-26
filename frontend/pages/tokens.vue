@@ -1,90 +1,124 @@
 <template>
   <div>
-    <h1>API Tokens</h1>
-    <p class="hint">
-      Use API tokens with the <code>md_cli</code> tool or any HTTP client by sending
-      <code>X-Agent-Token: &lt;token&gt;</code>. The full secret is shown once at
-      creation — copy it now and store it somewhere safe.
-    </p>
+    <div class="workspace-topline">
+      <span>DEVELOPER &amp; CLI ACCESS</span>
+      <button type="button" class="workspace-topline-link" @click="showCreate = !showCreate">
+        <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-plus"/></svg>
+        <span>{{ showCreate ? 'Cancel' : 'Create Token' }}</span>
+      </button>
+    </div>
 
-    <div class="section-header">
-      <h2>Your tokens</h2>
-      <button class="btn-primary" @click="showCreate = !showCreate">
-        {{ showCreate ? 'Cancel' : 'New Token' }}
+    <header class="page-header">
+      <div class="page-header-copy">
+        <p class="page-eyebrow">AUTOMATION &amp; CLI</p>
+        <h1 class="page-title">API Tokens</h1>
+        <p class="page-subtitle">
+          Mint scoped bearer tokens for <code>md_cli</code> or HTTP automation via the <code>X-Agent-Token</code> header.
+        </p>
+      </div>
+      <div class="catalog-total">
+        <strong>{{ tokens.length }}</strong>
+        <span>{{ tokens.length === 1 ? 'active token' : 'active tokens' }}</span>
+      </div>
+    </header>
+
+    <div class="tokens-toolbar">
+      <button type="button" class="btn btn-primary" @click="showCreate = !showCreate">
+        <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-plus"/></svg>
+        <span>{{ showCreate ? 'Close Form' : 'New API Token' }}</span>
       </button>
     </div>
 
     <!-- Create form -->
-    <form v-if="showCreate" class="form-card" @submit.prevent="createToken">
-      <h3>Create token</h3>
-      <div class="field">
-        <label>Name</label>
-        <input v-model="newToken.name" required placeholder="e.g. my-laptop-cli" />
+    <form v-if="showCreate" class="surface-card form-card" @submit.prevent="createToken">
+      <h3>Create Scoped API Token</h3>
+      <div class="form-grid">
+        <div class="field">
+          <label>Token Name</label>
+          <input v-model="newToken.name" class="input-control" required placeholder="e.g., macbook-md-cli" />
+        </div>
+        <div class="field">
+          <label>Expiration Date <span class="label-hint">(optional)</span></label>
+          <input v-model="newToken.expires_at" type="date" class="input-control" />
+        </div>
       </div>
       <div class="field">
-        <label>Scopes</label>
+        <label>Permission Scopes</label>
         <div class="scopes">
           <label v-for="s in allScopes" :key="s" class="scope-check">
-            <input type="checkbox" :value="s" v-model="newToken.scopes" />
+            <input v-model="newToken.scopes" type="checkbox" :value="s" />
             <span>{{ s }}</span>
           </label>
         </div>
       </div>
-      <div class="field">
-        <label>Expires (optional)</label>
-        <input v-model="newToken.expires_at" type="date" />
+      <p v-if="createError" class="error-msg">{{ createError }}</p>
+      <div class="form-actions">
+        <button type="button" class="btn" @click="showCreate = false">Cancel</button>
+        <button type="submit" class="btn btn-primary" :disabled="creating">
+          {{ creating ? 'Creating…' : 'Generate Token' }}
+        </button>
       </div>
-      <p v-if="createError" class="error">{{ createError }}</p>
-      <button type="submit" class="btn-primary" :disabled="creating">
-        {{ creating ? 'Creating...' : 'Create' }}
-      </button>
     </form>
 
     <!-- Reveal new secret once -->
-    <div v-if="newSecret" class="secret-card">
-      <h3>Token created — copy now</h3>
-      <p class="hint">
-        This secret will <strong>not</strong> be shown again. Save it to your
-        <code>.env</code> file as <code>MD_BROWSE_TOKEN</code>.
+    <div v-if="newSecret" class="surface-card secret-card">
+      <div class="secret-card-head">
+        <span class="pill pill-warning">Copy Now — Shown Once</span>
+        <button type="button" class="btn btn-xs" @click="newSecret = ''">Dismiss</button>
+      </div>
+      <h3>Your new API token is ready</h3>
+      <p class="secret-hint">
+        Store this token securely (for example in your <code>md_cli</code> profile or as <code>MD_BROWSE_TOKEN</code>).
       </p>
       <div class="secret-row">
         <code class="secret">{{ newSecret }}</code>
-        <button class="btn-primary" @click="copySecret">{{ copied ? 'Copied!' : 'Copy' }}</button>
+        <button type="button" class="btn btn-primary" @click="copySecret">
+          {{ copied ? '✓ Copied!' : 'Copy Secret' }}
+        </button>
       </div>
-      <button class="btn-secondary" @click="newSecret = ''">Dismiss</button>
     </div>
 
     <!-- Token list -->
-    <div v-if="loading" class="loading">Loading...</div>
-    <table v-else-if="tokens.length" class="table">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Prefix</th>
-          <th>Scopes</th>
-          <th>Created</th>
-          <th>Expires</th>
-          <th>Last used</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="t in tokens" :key="t.id">
-          <td>{{ t.name }}</td>
-          <td><code>{{ t.token_prefix }}…</code></td>
-          <td>
-            <span v-for="s in t.scopes" :key="s" class="badge">{{ s }}</span>
-          </td>
-          <td>{{ formatDate(t.created_at) }}</td>
-          <td>{{ formatDate(t.expires_at) || '—' }}</td>
-          <td>{{ formatDate(t.last_used_at) || 'Never' }}</td>
-          <td>
-            <button class="btn-danger" @click="revokeToken(t)">Revoke</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-    <p v-else class="hint">No tokens yet. Click <strong>New Token</strong> to create one.</p>
+    <div v-if="loading" class="surface-card loading">Loading tokens…</div>
+
+    <div v-else-if="tokens.length" class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Prefix</th>
+            <th>Scopes</th>
+            <th>Created</th>
+            <th>Expires</th>
+            <th>Last Used</th>
+            <th style="text-align:right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="t in tokens" :key="t.id">
+            <td><strong>{{ t.name }}</strong></td>
+            <td><code class="token-prefix">{{ t.token_prefix }}…</code></td>
+            <td>
+              <div class="scope-pills">
+                <span v-for="s in t.scopes" :key="s" class="pill">{{ s }}</span>
+              </div>
+            </td>
+            <td class="td-date">{{ formatDate(t.created_at) }}</td>
+            <td class="td-date">{{ formatDate(t.expires_at) || 'Never' }}</td>
+            <td class="td-date">{{ formatDate(t.last_used_at) || 'Never' }}</td>
+            <td style="text-align:right;">
+              <button type="button" class="btn btn-xs btn-danger" @click="revokeToken(t)">Revoke</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-else class="catalog-empty">
+      <svg class="ui-icon" aria-hidden="true"><use href="#ui-key"/></svg>
+      <strong>No API tokens created yet</strong>
+      <span>Generate a token above to connect <code>md_cli</code> or automated workflows.</span>
+    </div>
   </div>
 </template>
 
@@ -188,44 +222,154 @@ async function copySecret() {
 }
 
 function formatDate(iso) {
-  return iso ? new Date(iso).toLocaleString() : ''
+  return iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : ''
 }
 
 onMounted(loadTokens)
 </script>
 
 <style scoped>
-h1 { margin-bottom: 0.5rem; }
-.hint { color: var(--text2); font-size: 0.9rem; margin-bottom: 1.5rem; }
-.hint code { background: var(--surface2); padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.85em; }
-.section-header { display: flex; justify-content: space-between; align-items: center; margin: 1rem 0; }
-.section-header h2 { margin: 0; }
-.form-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 2px 4px var(--shadow); color: var(--text); }
-.form-card h3 { margin-bottom: 1rem; }
-.field { margin-bottom: 1rem; }
-.field label { display: block; font-weight: 500; margin-bottom: 0.4rem; color: var(--text); }
-.field input[type="text"], .field input[type="date"], .field input:not([type]) {
-  width: 100%; max-width: 360px; padding: 0.5rem;
-  border: 1px solid var(--border2); border-radius: 4px; font-size: 1rem;
-  background: var(--surface2); color: var(--text);
+.tokens-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
 }
-.scopes { display: flex; flex-wrap: wrap; gap: 0.75rem; }
-.scope-check { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
-.scope-check input { margin: 0; }
-.btn-primary { background: var(--accent); color: #fff; border: none; border-radius: 4px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.9rem; }
-.btn-primary:hover { background: var(--accent-hover); }
-.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-.btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border2); border-radius: 4px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.9rem; margin-top: 0.75rem; }
-.btn-danger { background: var(--danger); color: #fff; border: none; border-radius: 4px; padding: 0.35rem 0.75rem; cursor: pointer; font-size: 0.85rem; }
-.error { color: var(--danger); margin-bottom: 0.5rem; }
-.secret-card { background: var(--surface); border: 2px solid var(--warning); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem; color: var(--text); }
-.secret-card h3 { color: var(--warning); margin-bottom: 0.5rem; }
-.secret-row { display: flex; gap: 0.5rem; align-items: center; margin: 0.75rem 0; flex-wrap: wrap; }
-.secret { flex: 1; padding: 0.6rem; background: var(--surface2); border: 1px solid var(--border2); border-radius: 4px; font-family: monospace; font-size: 0.9rem; word-break: break-all; }
-.table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 2px 4px var(--shadow); overflow: hidden; color: var(--text); }
-.table th { background: var(--surface2); text-align: left; padding: 0.75rem 1rem; font-weight: 600; color: var(--text); }
-.table td { padding: 0.75rem 1rem; border-top: 1px solid var(--border); color: var(--text); vertical-align: middle; }
-.table code { background: var(--surface2); padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.85em; }
-.badge { display: inline-block; background: var(--tag-bg); color: #fff; padding: 0.1rem 0.5rem; border-radius: 3px; font-size: 0.75rem; margin-right: 0.25rem; margin-bottom: 0.15rem; }
-.loading { padding: 2rem; color: var(--text3); text-align: center; }
+
+.form-card {
+  margin-bottom: 20px;
+}
+
+.form-card h3 {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.field {
+  margin-bottom: 14px;
+}
+
+.field label {
+  display: block;
+  font-weight: 600;
+  font-size: 12.5px;
+  margin-bottom: 6px;
+}
+
+.label-hint {
+  font-weight: 450;
+  color: var(--muted);
+}
+
+.scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scope-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--canvas);
+  font-size: 12.5px;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.error-msg {
+  color: var(--danger);
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+.secret-card {
+  border-color: var(--warning-border);
+  background: var(--warning-soft);
+  margin-bottom: 20px;
+}
+
+.secret-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.secret-card h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.secret-hint {
+  color: var(--ink-secondary);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.secret-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.secret {
+  flex: 1;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.token-prefix {
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--raised);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.scope-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.td-date {
+  color: var(--muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.loading {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--muted);
+}
+
+@media (max-width: 640px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

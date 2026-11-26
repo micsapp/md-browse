@@ -2,77 +2,158 @@
   <Teleport to="body">
     <div v-if="panel.isOpen.value" class="folder-overlay" @click="panel.close()"></div>
 
-    <aside class="folder-panel" :class="{ open: panel.isOpen.value }" :style="desktopWidth">
+    <aside class="folder-panel" :class="{ open: panel.isOpen.value }" :style="desktopWidth" aria-label="Folder explorer">
       <div class="fp-header">
-        <span class="fp-title">Folders</span>
-        <button class="fp-close" @click="panel.close()">✕</button>
+        <div class="fp-header-title">
+          <svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg>
+          <span class="fp-title">Folders</span>
+        </div>
+        <div class="fp-header-actions">
+          <button v-if="auth.user" type="button" class="btn btn-xs btn-soft" @click="startCreate">
+            <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-plus"/></svg>
+            New
+          </button>
+          <button type="button" class="fp-close" aria-label="Close folders" @click="panel.close()">
+            <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-close"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick filter inside folder explorer -->
+      <div class="fp-filter">
+        <svg class="ui-icon ui-icon--sm fp-filter-icon" aria-hidden="true"><use href="#ui-search"/></svg>
+        <input v-model="filterQuery" type="search" placeholder="Filter folders or docs…" />
+      </div>
+
+      <div v-if="creatingInFolder === 'root'" class="inline-create">
+        <input
+          v-model="newFolderName"
+          class="input-control"
+          placeholder="New root folder name…"
+          autofocus
+          @keyup.enter="submitCreate(null)"
+          @keyup.esc="cancelCreate"
+        />
+        <button type="button" class="btn btn-xs btn-primary" @click="submitCreate(null)">Add</button>
+        <button type="button" class="btn btn-xs" @click="cancelCreate">Cancel</button>
       </div>
 
       <div class="fp-scroll">
-        <div class="fp-row" :class="{ active: panel.selectedFolderId.value === undefined }" @click="handlePickFolder(undefined)">
-          <span>📁</span><span class="fp-name">All Documents</span>
+        <!-- Virtual views -->
+        <div
+          class="fp-row"
+          :class="{ active: panel.selectedFolderId.value === undefined }"
+          @click="handlePickFolder(undefined)"
+        >
+          <svg class="ui-icon ui-icon--sm fp-row-icon" aria-hidden="true"><use href="#ui-grid"/></svg>
+          <span class="fp-name">All Documents</span>
           <span class="fp-count">{{ allDocuments?.length || 0 }}</span>
         </div>
-        <div class="fp-row" :class="{ active: panel.selectedFolderId.value === null }" @click="handlePickFolder(null)">
-          <span>📁</span><span class="fp-name">Root (Unfiled)</span>
+
+        <div
+          class="fp-row"
+          :class="{ active: panel.selectedFolderId.value === null }"
+          @click="handlePickFolder(null)"
+        >
+          <svg class="ui-icon ui-icon--sm fp-row-icon" aria-hidden="true"><use href="#ui-folder"/></svg>
+          <span class="fp-name">Root (Unfiled)</span>
           <span class="fp-count">{{ rootDocCount }}</span>
         </div>
 
-        <template v-for="item in flatFolders" :key="item.id">
-          <div class="fp-row"
-               :class="{ active: panel.selectedFolderId.value === item.id }"
-               :style="{ paddingLeft: (0.75 + item.depth * 1.25) + 'rem' }"
-               @click="handlePickFolder(item.id)">
-            <span>📁</span>
+        <div v-if="flatFolders.length" class="fp-section-label">Folder Hierarchy</div>
+
+        <template v-for="item in filteredFolders" :key="item.id">
+          <div
+            class="fp-row"
+            :class="{ active: panel.selectedFolderId.value === item.id }"
+            :style="{ paddingLeft: (12 + item.depth * 18) + 'px' }"
+            @click="handlePickFolder(item.id)"
+          >
+            <svg class="ui-icon ui-icon--sm fp-row-icon" aria-hidden="true"><use href="#ui-folder"/></svg>
             <span class="fp-name">{{ item.name }}</span>
             <span class="fp-count">{{ folderDocCounts[item.id] || 0 }}</span>
-            <div class="fp-actions" @click.stop>
-              <button class="btn-icon" @click="toggleFolderMenu(item.id)">···</button>
+            <div v-if="auth.user" class="fp-actions" @click.stop>
+              <button type="button" class="btn-icon" title="Folder actions" @click="toggleFolderMenu(item.id)">···</button>
               <div v-if="folderMenuOpen === item.id" class="fp-menu">
-                <button @click="startRename(item)">Rename</button>
-                <button @click="startCreateChild(item.id)">Add subfolder</button>
-                <button v-if="!nonEmptyFolderIds.has(item.id)" @click="handleDeleteFolder(item.id)" class="danger">Delete</button>
+                <button type="button" @click="startRename(item)">Rename folder</button>
+                <button type="button" @click="startCreateChild(item.id)">Add subfolder</button>
+                <button
+                  v-if="!nonEmptyFolderIds.has(item.id)"
+                  type="button"
+                  class="danger"
+                  @click="handleDeleteFolder(item.id)"
+                >
+                  Delete folder
+                </button>
               </div>
             </div>
           </div>
-          <div v-for="doc in docsInFolder(item.id)" :key="doc.id" class="fp-doc"
-               :style="{ paddingLeft: (1.5 + item.depth * 1.25) + 'rem' }">
-            <a href="#" @click.prevent="openDocInViewer(doc.id)">📄 {{ doc.title }}</a>
+
+          <div
+            v-for="doc in docsInFolder(item.id)"
+            :key="doc.id"
+            class="fp-doc"
+            :style="{ paddingLeft: (28 + item.depth * 18) + 'px' }"
+          >
+            <a href="#" @click.prevent="openDocInViewer(doc.id)">
+              <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-doc"/></svg>
+              <span>{{ doc.title }}</span>
+            </a>
           </div>
-          <div v-if="creatingInFolder === item.id" class="inline-create"
-               :style="{ paddingLeft: (0.75 + (item.depth + 1) * 1.25) + 'rem' }">
-            <input v-model="newFolderName" placeholder="Folder name" @keyup.enter="submitCreate(item.id)" @keyup.esc="cancelCreate" autofocus />
-            <button @click="submitCreate(item.id)" class="btn-sm">Add</button>
-            <button @click="cancelCreate" class="btn-sm">✕</button>
+
+          <div
+            v-if="creatingInFolder === item.id"
+            class="inline-create"
+            :style="{ paddingLeft: (16 + (item.depth + 1) * 18) + 'px' }"
+          >
+            <input
+              v-model="newFolderName"
+              class="input-control"
+              placeholder="Subfolder name…"
+              autofocus
+              @keyup.enter="submitCreate(item.id)"
+              @keyup.esc="cancelCreate"
+            />
+            <button type="button" class="btn btn-xs btn-primary" @click="submitCreate(item.id)">Add</button>
+            <button type="button" class="btn btn-xs" @click="cancelCreate">✕</button>
           </div>
         </template>
 
-        <div v-for="doc in docsInFolder(null)" :key="doc.id" class="fp-doc" style="padding-left: 1.5rem;">
-          <a href="#" @click.prevent="openDocInViewer(doc.id)">📄 {{ doc.title }}</a>
-        </div>
-
-        <div class="fp-new">
-          <button @click="startCreate" class="btn-new-folder">+ New Folder</button>
-          <div v-if="creatingInFolder === 'root'" class="inline-create">
-            <input v-model="newFolderName" placeholder="Folder name" @keyup.enter="submitCreate(null)" @keyup.esc="cancelCreate" autofocus />
-            <button @click="submitCreate(null)" class="btn-sm">Add</button>
-            <button @click="cancelCreate" class="btn-sm">✕</button>
+        <template v-if="docsInFolder(null).length">
+          <div class="fp-section-label">Unfiled Documents</div>
+          <div v-for="doc in docsInFolder(null)" :key="doc.id" class="fp-doc" style="padding-left: 20px;">
+            <a href="#" @click.prevent="openDocInViewer(doc.id)">
+              <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-doc"/></svg>
+              <span>{{ doc.title }}</span>
+            </a>
           </div>
-        </div>
+        </template>
       </div>
 
       <!-- Resize handle (desktop only) -->
       <div class="fp-resize-handle" @mousedown.prevent="startResize"></div>
     </aside>
 
-    <!-- Rename modal outside aside to avoid z-index/overflow issues -->
-    <div v-if="renamingFolder" class="modal-overlay" @click.self="cancelRename">
-      <div class="modal">
-        <h3>Rename Folder</h3>
-        <input v-model="renameValue" @keyup.enter="confirmRename" @keyup.esc="cancelRename" ref="renameInput" />
-        <div class="modal-btns">
-          <button @click="confirmRename" class="btn-primary">Save</button>
-          <button @click="cancelRename" class="btn-secondary">Cancel</button>
+    <!-- Rename modal -->
+    <div v-if="renamingFolder" class="modal-backdrop" @click.self="cancelRename">
+      <div class="modal-card">
+        <div class="modal-card-header">
+          <h3>Rename Folder</h3>
+          <button type="button" class="btn btn-xs btn-ghost" @click="cancelRename">✕</button>
+        </div>
+        <div class="modal-card-body">
+          <input
+            ref="renameInput"
+            v-model="renameValue"
+            class="input-control"
+            placeholder="Folder name"
+            @keyup.enter="confirmRename"
+            @keyup.esc="cancelRename"
+          />
+        </div>
+        <div class="modal-card-footer">
+          <button type="button" class="btn btn-sm" @click="cancelRename">Cancel</button>
+          <button type="button" class="btn btn-sm btn-primary" @click="confirmRename">Save Changes</button>
         </div>
       </div>
     </div>
@@ -85,9 +166,12 @@ const docViewer = useDocViewer()
 const api = useApi()
 const route = useRoute()
 const router = useRouter()
+const auth = useAuth()
+
+const filterQuery = ref('')
 
 // ── Resizable width (desktop only) ───────────────────────────────────────────
-const DEFAULT_WIDTH = 280
+const DEFAULT_WIDTH = 310
 const panelWidth = ref(import.meta.client ? (parseInt(localStorage.getItem('fpWidth')) || DEFAULT_WIDTH) : DEFAULT_WIDTH)
 const desktopWidth = computed(() => {
   if (import.meta.client && window.innerWidth <= 768) return {}
@@ -103,7 +187,7 @@ function startResize(e) {
 }
 function onResizeMove(e) {
   if (!resizing) return
-  panelWidth.value = Math.max(200, Math.min(600, resizeStartW + (e.clientX - resizeStartX)))
+  panelWidth.value = Math.max(240, Math.min(600, resizeStartW + (e.clientX - resizeStartX)))
 }
 function onResizeUp() {
   resizing = false
@@ -117,8 +201,6 @@ onUnmounted(() => {
 })
 
 // ── Data ──────────────────────────────────────────────────────────────────────
-const auth = useAuth()
-
 const { data: allFolders, refresh: refreshFolders } = await useAsyncData('fp-folders', async () => {
   if (import.meta.server || !auth.isLoggedIn) return []
   try { return await api.getFolders() } catch { return [] }
@@ -129,7 +211,6 @@ const { data: allDocuments, refresh: refreshAllDocs } = await useAsyncData('fp-a
   try { return await api.getDocuments({ page_size: 100 }) } catch { return [] }
 }, { default: () => [], server: false })
 
-// Refresh data when auth state changes (e.g., after login)
 watch(() => auth.isLoggedIn, async (loggedIn) => {
   if (loggedIn) {
     await refreshFolders()
@@ -145,6 +226,15 @@ const flatFolders = computed(() => {
       .flatMap(f => [{ ...f, depth }, ...flatten(f.id, depth + 1)])
   }
   return flatten(null, 0)
+})
+
+const filteredFolders = computed(() => {
+  const q = filterQuery.value.trim().toLowerCase()
+  if (!q) return flatFolders.value
+  return flatFolders.value.filter(f => {
+    if (f.name.toLowerCase().includes(q)) return true
+    return docsInFolder(f.id).length > 0
+  })
 })
 
 const nonEmptyFolderIds = computed(() => {
@@ -165,10 +255,15 @@ const folderDocCounts = computed(() => {
 const rootDocCount = computed(() => (allDocuments.value || []).filter(d => !d.folder_id).length)
 
 function docsInFolder(folderId) {
-  return (allDocuments.value || []).filter(d => folderId === null ? !d.folder_id : d.folder_id === folderId)
+  const q = filterQuery.value.trim().toLowerCase()
+  return (allDocuments.value || []).filter(d => {
+    const inTarget = folderId === null ? !d.folder_id : d.folder_id === folderId
+    if (!inTarget) return false
+    if (!q) return true
+    return d.title?.toLowerCase().includes(q)
+  })
 }
 
-// Refresh when index.vue triggers a change (e.g. doc moved/deleted)
 watch(() => panel.folderRefreshKey.value, async () => {
   await refreshFolders()
   await refreshAllDocs()
@@ -250,93 +345,307 @@ async function handleDeleteFolder(id) {
 
 <style scoped>
 .folder-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 400;
+  position: fixed;
+  inset: 0;
+  background: rgba(12, 20, 36, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 400;
 }
 
 .folder-panel {
   position: fixed;
-  top: 0; left: 0;
-  width: 280px; height: 100dvh;
+  top: 0;
+  left: 0;
+  width: 310px;
+  height: 100dvh;
   background: var(--surface);
+  border-right: 1px solid var(--line);
   z-index: 401;
-  display: flex; flex-direction: column;
+  display: flex;
+  flex-direction: column;
   transform: translateX(-100%);
-  transition: transform 0.25s ease;
-  box-shadow: 4px 0 20px var(--shadow2);
+  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow: var(--shadow-lg);
 }
-.folder-panel.open { transform: translateX(0); }
+
+.folder-panel.open {
+  transform: translateX(0);
+}
 
 .fp-header {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
-.fp-title { font-weight: 700; font-size: 1rem; color: var(--text); }
-.fp-close { background: none; border: none; font-size: 1.2rem; cursor: pointer; color: var(--text3); padding: 0.2rem; }
 
-.fp-scroll { flex: 1; overflow-y: auto; }
+.fp-header-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--ink);
+}
+
+.fp-header-title .ui-icon {
+  color: var(--accent);
+}
+
+.fp-title {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.fp-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fp-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--raised);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.fp-close:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.fp-filter {
+  position: relative;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.fp-filter-icon {
+  position: absolute;
+  left: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--subtle);
+  pointer-events: none;
+}
+
+.fp-filter input {
+  width: 100%;
+  height: 34px;
+  padding: 5px 10px 5px 31px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: 12.5px;
+}
+
+.fp-filter input:focus {
+  outline: none;
+  border-color: var(--accent-solid);
+  background: var(--surface);
+}
+
+.fp-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.fp-section-label {
+  margin: 14px 10px 6px;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--subtle);
+}
 
 .fp-row {
-  display: flex; align-items: center; gap: 0.4rem;
-  padding: 0.45rem 0.75rem; cursor: pointer; position: relative;
-  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+  position: relative;
+  color: var(--ink-secondary);
+  transition: background 0.15s, color 0.15s;
 }
-.fp-row:hover { background: var(--hover-bg); }
-.fp-row.active { background: var(--active-bg); color: var(--active-color); font-weight: 500; }
-.fp-name { flex: 1; font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fp-count { font-size: 0.72rem; color: var(--text3); background: var(--surface2); padding: 0 0.4rem; border-radius: 8px; min-width: 1.2rem; text-align: center; }
 
-.fp-doc { padding: 0.25rem 0.75rem; font-size: 0.82rem; }
-.fp-doc a { color: var(--text2); text-decoration: none; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fp-doc a:hover { color: var(--accent); }
+.fp-row:hover {
+  background: var(--raised);
+  color: var(--ink);
+}
 
-.fp-actions { display: none; }
-.fp-row:hover .fp-actions, .fp-row.active .fp-actions { display: block; }
-.btn-icon { background: none; border: none; cursor: pointer; padding: 0 0.2rem; font-size: 1rem; color: var(--text3); line-height: 1; }
-.btn-icon:hover { color: var(--text); }
+.fp-row.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.fp-row-icon {
+  color: var(--accent);
+  opacity: 0.85;
+}
+
+.fp-name {
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fp-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--raised);
+  padding: 1px 7px;
+  border-radius: 999px;
+  min-width: 22px;
+  text-align: center;
+}
+
+.fp-row.active .fp-count {
+  background: var(--surface);
+  color: var(--accent);
+}
+
+.fp-doc {
+  padding: 2px 8px;
+}
+
+.fp-doc a {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 12.5px;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fp-doc a:hover {
+  background: var(--raised);
+  color: var(--accent);
+}
+
+.fp-doc a span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fp-actions {
+  display: none;
+}
+
+.fp-row:hover .fp-actions,
+.fp-row.active .fp-actions {
+  display: block;
+}
+
+.btn-icon {
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1;
+}
+
+.btn-icon:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
 
 .fp-menu {
-  position: absolute; right: 0.25rem; top: 100%;
-  background: var(--surface); border: 1px solid var(--border2);
-  border-radius: 6px; box-shadow: 0 4px 14px var(--shadow2);
-  z-index: 100; min-width: 150px;
+  position: absolute;
+  right: 8px;
+  top: calc(100% + 2px);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  z-index: 100;
+  min-width: 156px;
+  padding: 4px;
 }
-.fp-menu button { display: block; width: 100%; text-align: left; padding: 0.5rem 0.75rem; border: none; background: none; cursor: pointer; font-size: 0.85rem; color: var(--text); }
-.fp-menu button:hover { background: var(--hover-bg); }
-.fp-menu button.danger { color: var(--danger); }
 
-.inline-create { display: flex; align-items: center; gap: 0.3rem; padding: 0.4rem 0.75rem; background: var(--surface2); border-top: 1px solid var(--border); }
-.inline-create input { flex: 1; padding: 0.25rem 0.4rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.82rem; background: var(--surface); color: var(--text); }
+.fp-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--ink);
+}
 
-.fp-new { padding: 0.5rem 0.75rem; border-top: 1px solid var(--border); flex-shrink: 0; }
-.btn-new-folder { background: none; border: none; cursor: pointer; color: var(--accent); font-size: 0.85rem; padding: 0; font-weight: 500; }
-.btn-new-folder:hover { text-decoration: underline; }
+.fp-menu button:hover {
+  background: var(--raised);
+}
 
-.btn-sm { padding: 0.2rem 0.5rem; font-size: 0.76rem; border: 1px solid var(--border2); border-radius: 4px; cursor: pointer; background: var(--surface); color: var(--text); }
-.btn-sm:hover { background: var(--hover-bg); }
+.fp-menu button.danger {
+  color: var(--danger);
+}
 
-/* ── Resize handle ───────────────────────────────────────────────────────── */
+.fp-menu button.danger:hover {
+  background: var(--danger-soft);
+}
+
+.inline-create {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--raised);
+  border-bottom: 1px solid var(--line);
+}
+
+.inline-create .input-control {
+  padding: 5px 9px;
+  font-size: 12.5px;
+}
+
 .fp-resize-handle {
-  position: absolute; top: 0; right: 0;
-  width: 5px; height: 100%;
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px;
+  height: 100%;
   cursor: ew-resize;
   z-index: 10;
 }
-.fp-resize-handle:hover { background: var(--accent); opacity: 0.4; }
 
-@media (max-width: 768px) {
-  .folder-panel { width: 100vw !important; }
-  .fp-resize-handle { display: none; }
+.fp-resize-handle:hover {
+  background: var(--accent-solid);
+  opacity: 0.4;
 }
 
-/* ── Rename modal ────────────────────────────────────────────────────────── */
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 600; }
-.modal { background: var(--surface); padding: 1.25rem; border-radius: 8px; width: min(360px, calc(100vw - 2rem)); box-shadow: 0 8px 32px var(--shadow2); color: var(--text); }
-.modal h3 { margin: 0 0 0.75rem; font-size: 1rem; }
-.modal input { width: 100%; padding: 0.5rem; border: 1px solid var(--border2); border-radius: 4px; margin-bottom: 0.75rem; font-size: 0.95rem; background: var(--surface2); color: var(--text); box-sizing: border-box; }
-.modal-btns { display: flex; gap: 0.5rem; justify-content: flex-end; }
-.btn-primary { padding: 0.4rem 0.9rem; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; }
-.btn-primary:hover { background: var(--accent-hover); }
-.btn-secondary { padding: 0.4rem 0.9rem; background: var(--surface2); border: 1px solid var(--border2); border-radius: 4px; cursor: pointer; color: var(--text); }
-.btn-secondary:hover { background: var(--hover-bg); }
+@media (max-width: 768px) {
+  .folder-panel {
+    width: min(320px, calc(100vw - 40px)) !important;
+  }
+  .fp-resize-handle {
+    display: none;
+  }
+}
 </style>

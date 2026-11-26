@@ -2,25 +2,66 @@ const sharedTheme = ref('light')
 let themeInitialized = false
 
 export const useTheme = () => {
-  if (import.meta.client && !themeInitialized) {
-    const saved = localStorage.getItem('theme')
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-    sharedTheme.value = saved || (prefersDark ? 'dark' : 'light')
-    applyTheme(sharedTheme.value)
-    themeInitialized = true
+  function applyTheme(t) {
+    if (!import.meta.client) return
+    const next = t === 'dark' ? 'dark' : 'light'
+    document.documentElement.setAttribute('data-theme', next)
+    document.documentElement.style.colorScheme = next
+    document.documentElement.style.backgroundColor = next === 'dark' ? '#101722' : '#f6f8fb'
+    const meta = document.querySelector('meta[name="theme-color"]')
+    if (meta) meta.setAttribute('content', next === 'dark' ? '#101722' : '#f6f8fb')
   }
 
-  function applyTheme(t) {
+  function resolvePreferredTheme() {
+    if (!import.meta.client) return 'light'
+    try {
+      const saved = localStorage.getItem('theme')
+      if (saved === 'dark' || saved === 'light') return saved
+    } catch {}
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  }
+
+  if (import.meta.client && !themeInitialized) {
+    sharedTheme.value = resolvePreferredTheme()
+    applyTheme(sharedTheme.value)
+    themeInitialized = true
+
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const onSystemChange = () => {
+      try {
+        const saved = localStorage.getItem('theme')
+        if (saved === 'dark' || saved === 'light') return
+      } catch {}
+      sharedTheme.value = media.matches ? 'dark' : 'light'
+      applyTheme(sharedTheme.value)
+    }
+    if (media.addEventListener) media.addEventListener('change', onSystemChange)
+
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'theme' || e.key === null) {
+        sharedTheme.value = resolvePreferredTheme()
+        applyTheme(sharedTheme.value)
+      }
+    })
+  }
+
+  function setTheme(next) {
+    const valid = next === 'dark' ? 'dark' : 'light'
+    sharedTheme.value = valid
+    applyTheme(valid)
     if (import.meta.client) {
-      document.documentElement.setAttribute('data-theme', t)
+      try { localStorage.setItem('theme', valid) } catch {}
     }
   }
 
   function toggle() {
-    sharedTheme.value = sharedTheme.value === 'dark' ? 'light' : 'dark'
-    applyTheme(sharedTheme.value)
-    if (import.meta.client) localStorage.setItem('theme', sharedTheme.value)
+    setTheme(sharedTheme.value === 'dark' ? 'light' : 'dark')
   }
 
-  return reactive({ theme: sharedTheme, toggle, isDark: computed(() => sharedTheme.value === 'dark') })
+  return reactive({
+    theme: sharedTheme,
+    setTheme,
+    toggle,
+    isDark: computed(() => sharedTheme.value === 'dark')
+  })
 }

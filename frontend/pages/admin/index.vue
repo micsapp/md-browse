@@ -1,92 +1,136 @@
 <template>
   <div>
-    <h1>Admin Panel</h1>
-    <div class="tabs">
-      <button :class="{ active: tab === 'users' }" @click="tab = 'users'">Users</button>
-      <button :class="{ active: tab === 'settings' }" @click="tab = 'settings'">Settings</button>
+    <div class="workspace-topline">
+      <span>SYSTEM ADMINISTRATION</span>
+      <NuxtLink to="/" class="workspace-topline-link">
+        <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-arrow-left"/></svg>
+        <span>Back to Workspace</span>
+      </NuxtLink>
+    </div>
+
+    <header class="page-header">
+      <div class="page-header-copy">
+        <p class="page-eyebrow">ACCESS &amp; GOVERNANCE</p>
+        <h1 class="page-title">Admin Panel</h1>
+        <p class="page-subtitle">Manage workspace accounts, registration policies, and audit activity.</p>
+      </div>
+    </header>
+
+    <!-- Summary Cards -->
+    <div class="admin-stats">
+      <div class="surface-card stat-card">
+        <span class="stat-label">Total Accounts</span>
+        <strong class="stat-value">{{ users.length }}</strong>
+      </div>
+      <div class="surface-card stat-card">
+        <span class="stat-label">Administrators</span>
+        <strong class="stat-value">{{ users.filter(u => u.role === 'admin').length }}</strong>
+      </div>
+      <div class="surface-card stat-card">
+        <span class="stat-label">Self-Registration</span>
+        <strong class="stat-value">{{ settings.registration_enabled ? 'Enabled' : 'Disabled' }}</strong>
+      </div>
+    </div>
+
+    <div class="admin-tabs" role="tablist">
+      <button type="button" :class="{ active: tab === 'users' }" @click="tab = 'users'">Users</button>
+      <button type="button" :class="{ active: tab === 'settings' }" @click="tab = 'settings'">Settings</button>
+      <button type="button" :class="{ active: tab === 'audit' }" @click="tab = 'audit'; loadAuditLogs()">Audit Log</button>
     </div>
 
     <!-- Users Tab -->
-    <div v-if="tab === 'users'" class="section">
+    <section v-if="tab === 'users'" class="section">
       <div class="section-header">
-        <h2>Users</h2>
-        <button class="btn-primary" @click="showAddUser = !showAddUser">
-          {{ showAddUser ? 'Cancel' : 'Add User' }}
+        <h2>Workspace Users</h2>
+        <button type="button" class="btn btn-sm btn-primary" @click="showAddUser = !showAddUser">
+          <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-plus"/></svg>
+          <span>{{ showAddUser ? 'Cancel' : 'Add User' }}</span>
         </button>
       </div>
 
       <!-- Add User Form -->
-      <form v-if="showAddUser" class="form-card" @submit.prevent="createUser">
-        <h3>New User</h3>
-        <div class="field">
-          <label>Username</label>
-          <input v-model="newUser.username" required />
-        </div>
-        <div class="field">
-          <label>Password</label>
-          <input v-model="newUser.password" type="password" required />
-        </div>
-        <div class="field">
-          <label>Role</label>
-          <select v-model="newUser.role">
-            <option value="viewer">Viewer</option>
-            <option value="editor">Editor</option>
-            <option value="admin">Admin</option>
-          </select>
+      <form v-if="showAddUser" class="surface-card form-card" @submit.prevent="createUser">
+        <h3>Create New User</h3>
+        <div class="form-grid">
+          <div class="field">
+            <label>Username</label>
+            <input v-model="newUser.username" class="input-control" required placeholder="Username" />
+          </div>
+          <div class="field">
+            <label>Password</label>
+            <input v-model="newUser.password" type="password" class="input-control" required placeholder="Password" />
+          </div>
+          <div class="field">
+            <label>Role</label>
+            <select v-model="newUser.role" class="select-control">
+              <option value="viewer">Viewer</option>
+              <option value="editor">Editor</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
         </div>
         <p v-if="userError" class="error">{{ userError }}</p>
-        <button type="submit" class="btn-primary">Create</button>
+        <div style="display:flex; justify-content:flex-end; gap:8px;">
+          <button type="button" class="btn btn-sm" @click="showAddUser = false">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-primary">Create Account</button>
+        </div>
       </form>
 
       <!-- Users Table -->
-      <div v-if="usersLoading" class="loading">Loading...</div>
-      <table v-else class="table">
-        <thead>
-          <tr>
-            <th>Username</th>
-            <th>Role</th>
-            <th>Created</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="u in users" :key="u.username">
-            <td>{{ u.username }}</td>
-            <td>
-              <select
-                :value="u.role"
-                :disabled="u.username === auth.user"
-                @change="updateRole(u.username, $event.target.value)"
-              >
-                <option value="viewer">Viewer</option>
-                <option value="editor">Editor</option>
-                <option value="admin">Admin</option>
-              </select>
-            </td>
-            <td>{{ formatDate(u.created_at) }}</td>
-            <td>
-              <button
-                class="btn-danger"
-                :disabled="u.username === auth.user"
-                @click="deleteUser(u.username)"
-              >
-                Delete
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+      <div v-if="usersLoading" class="surface-card loading">Loading users…</div>
+      <div v-else class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Role</th>
+              <th>Created</th>
+              <th style="text-align:right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="u in users" :key="u.username">
+              <td>
+                <strong>{{ u.username }}</strong>
+                <span v-if="u.username === auth.user" class="pill pill-accent" style="margin-left:8px;">You</span>
+              </td>
+              <td>
+                <select
+                  :value="u.role"
+                  :disabled="u.username === auth.user"
+                  class="select-control role-select"
+                  @change="updateRole(u.username, $event.target.value)"
+                >
+                  <option value="viewer">Viewer</option>
+                  <option value="editor">Editor</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </td>
+              <td class="td-date">{{ formatDate(u.created_at) }}</td>
+              <td style="text-align:right;">
+                <button
+                  type="button"
+                  class="btn btn-xs btn-danger"
+                  :disabled="u.username === auth.user"
+                  @click="deleteUser(u.username)"
+                >
+                  Delete
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
     <!-- Settings Tab -->
-    <div v-if="tab === 'settings'" class="section">
-      <h2>Settings</h2>
-      <div v-if="settingsLoading" class="loading">Loading...</div>
-      <div v-else class="form-card">
+    <section v-if="tab === 'settings'" class="section">
+      <div v-if="settingsLoading" class="surface-card loading">Loading settings…</div>
+      <div v-else class="surface-card form-card">
         <div class="toggle-row">
           <div>
-            <strong>Allow Registration</strong>
-            <p class="hint">When disabled, only admins can create new accounts.</p>
+            <strong>Allow Public Account Registration</strong>
+            <p class="hint">When disabled, only administrators can create new user accounts.</p>
           </div>
           <label class="toggle">
             <input v-model="settings.registration_enabled" type="checkbox" @change="saveSettings" />
@@ -95,7 +139,44 @@
         </div>
         <p v-if="settingsMsg" class="success">{{ settingsMsg }}</p>
       </div>
-    </div>
+    </section>
+
+    <!-- Audit Log Tab -->
+    <section v-if="tab === 'audit'" class="section">
+      <div class="section-header">
+        <h2>Recent Audit Events</h2>
+        <button type="button" class="btn btn-sm" :disabled="auditLoading" @click="loadAuditLogs">Refresh</button>
+      </div>
+      <div v-if="auditLoading" class="surface-card loading">Loading audit events…</div>
+      <div v-else-if="auditLogs.length" class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Actor</th>
+              <th>Action</th>
+              <th>Resource</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in auditLogs" :key="item.id">
+              <td class="td-date">{{ formatDateTime(item.created_at) }}</td>
+              <td>
+                <strong>{{ item.actor_id }}</strong>
+                <span class="pill" style="margin-left:6px;">{{ item.actor_type }}</span>
+              </td>
+              <td><span class="pill pill-accent">{{ item.action }}</span></td>
+              <td class="td-date">{{ item.resource_type }}: {{ item.resource_id }}</td>
+              <td class="td-date">{{ formatMeta(item.metadata) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-else class="catalog-empty">
+        <strong>No audit events recorded</strong>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -201,8 +282,35 @@ async function saveSettings() {
   }
 }
 
+// ── Audit Log ────────────────────────────────────────────────────────────────
+const auditLogs = ref([])
+const auditLoading = ref(false)
+
+async function loadAuditLogs() {
+  auditLoading.value = true
+  try {
+    const res = await $fetch(`${config.public.apiBase}/v1/audit-logs?page_size=50`, {
+      headers: auth.getAuthHeaders()
+    })
+    auditLogs.value = res.data || []
+  } catch (err) {
+    console.error('Failed to load audit logs', err)
+  } finally {
+    auditLoading.value = false
+  }
+}
+
 function formatDate(iso) {
-  return iso ? new Date(iso).toLocaleDateString() : ''
+  return iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : ''
+}
+
+function formatDateTime(iso) {
+  return iso ? new Date(iso).toLocaleString() : ''
+}
+
+function formatMeta(meta) {
+  if (!meta || !Object.keys(meta).length) return '—'
+  return Object.entries(meta).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(',') : v}`).join(' · ')
 }
 
 onMounted(() => {
@@ -212,37 +320,180 @@ onMounted(() => {
 </script>
 
 <style scoped>
-h1 { margin-bottom: 1.5rem; }
-.tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 2px solid var(--border); }
-.tabs button { padding: 0.5rem 1.25rem; border: none; background: none; cursor: pointer; font-size: 1rem; border-bottom: 2px solid transparent; margin-bottom: -2px; color: var(--text2); }
-.tabs button:hover { color: var(--text); }
-.tabs button.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
-.section { }
-.section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
-.section-header h2 { margin: 0; }
-.form-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 2px 4px var(--shadow); padding: 1.5rem; margin-bottom: 1.5rem; color: var(--text); }
-.form-card h3 { margin-bottom: 1rem; }
-.field { margin-bottom: 1rem; }
-.field label { display: block; font-weight: 500; margin-bottom: 0.25rem; color: var(--text); }
-.field input, .field select { width: 100%; max-width: 320px; padding: 0.5rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 1rem; background: var(--surface2); color: var(--text); }
-.field input:focus, .field select:focus, .table select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
-.btn-primary { background: var(--accent); color: #fff; border: none; border-radius: 4px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.9rem; }
-.btn-primary:hover { background: var(--accent-hover); }
-.btn-danger { background: var(--danger); color: #fff; border: none; border-radius: 4px; padding: 0.35rem 0.75rem; cursor: pointer; font-size: 0.85rem; }
-.btn-danger:disabled { background: var(--danger-muted); cursor: not-allowed; color: var(--text3); }
-.table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 2px 4px var(--shadow); overflow: hidden; color: var(--text); }
-.table th { background: var(--surface2); text-align: left; padding: 0.75rem 1rem; font-weight: 600; color: var(--text); }
-.table td { padding: 0.75rem 1rem; border-top: 1px solid var(--border); color: var(--text); }
-.table select { padding: 0.25rem 0.5rem; border: 1px solid var(--border2); border-radius: 4px; background: var(--surface2); color: var(--text); }
-.loading { padding: 2rem; color: var(--text3); text-align: center; }
-.error { color: var(--danger); margin-bottom: 0.5rem; }
-.success { color: var(--success); margin-top: 0.5rem; }
-.toggle-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 2rem; }
-.hint { color: var(--text3); font-size: 0.875rem; margin-top: 0.25rem; }
-.toggle { position: relative; display: inline-block; width: 48px; height: 26px; flex-shrink: 0; }
-.toggle input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; cursor: pointer; inset: 0; background: var(--border2); border-radius: 26px; transition: 0.3s; }
-.slider::before { content: ''; position: absolute; height: 18px; width: 18px; left: 4px; bottom: 4px; background: #fff; border-radius: 50%; transition: 0.3s; }
-.toggle input:checked + .slider { background: var(--accent); }
-.toggle input:checked + .slider::before { transform: translateX(22px); }
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.stat-card {
+  display: grid;
+  gap: 6px;
+}
+
+.stat-label {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.stat-value {
+  font-size: 26px;
+  font-weight: 750;
+  color: var(--ink);
+  letter-spacing: -0.03em;
+}
+
+.admin-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-tabs button {
+  padding: 10px 18px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--muted);
+  margin-bottom: -1px;
+}
+
+.admin-tabs button:hover {
+  color: var(--ink);
+}
+
+.admin-tabs button.active {
+  border-bottom-color: var(--accent-solid);
+  color: var(--accent);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.section-header h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.form-card {
+  margin-bottom: 18px;
+}
+
+.form-card h3 {
+  margin: 0 0 14px;
+  font-size: 15.5px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.field label {
+  display: block;
+  font-weight: 600;
+  font-size: 12.5px;
+  margin-bottom: 6px;
+}
+
+.role-select {
+  width: auto;
+  min-width: 120px;
+  padding: 5px 10px;
+}
+
+.td-date {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.loading {
+  padding: 48px 24px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.error {
+  color: var(--danger);
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.success {
+  color: var(--success);
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.toggle {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: var(--line-strong);
+  border-radius: 26px;
+  transition: 0.25s;
+}
+
+.slider::before {
+  content: '';
+  position: absolute;
+  height: 20px;
+  width: 20px;
+  left: 3px;
+  bottom: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: 0.25s;
+}
+
+.toggle input:checked + .slider {
+  background: var(--accent-solid);
+}
+
+.toggle input:checked + .slider::before {
+  transform: translateX(22px);
+}
 </style>

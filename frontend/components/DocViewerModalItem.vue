@@ -1,125 +1,316 @@
 <template>
   <div
     class="dv-modal"
-    :class="{ 'dv-modal--mobile': mobile }"
+    :class="{ 'dv-modal--mobile': mobile, 'dv-modal--fullscreen': isFullscreen }"
     :style="modalStyle"
     @mousedown.capture="onModalMousedown"
   >
     <!-- Header / drag handle -->
     <div class="dv-header" @mousedown.prevent="!mobile && !isFullscreen && startDrag($event)">
-      <span class="dv-title">{{ doc?.title || 'Loading…' }}</span>
+      <div class="dv-title-group">
+        <span class="dv-doc-icon">
+          <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-doc"/></svg>
+        </span>
+        <span class="dv-title" :title="doc?.title">{{ doc?.title || 'Loading…' }}</span>
+      </div>
       <div class="dv-header-actions" @mousedown.stop>
-        <button v-if="auth.user" @click="editing = !editing" class="dv-btn" :class="{ active: editing }">Edit</button>
-        <button v-if="auth.user" @click="showVersions = !showVersions" class="dv-btn">History</button>
-        <button v-if="auth.user" @click="downloadDoc" class="dv-btn">⬇</button>
-        <button v-if="auth.user" @click="showSharePanel = !showSharePanel" class="dv-btn">Share</button>
-        <button v-if="auth.user" @click="deleteDoc" class="dv-btn dv-btn-danger">Del</button>
-        <button v-if="!mobile" @click="toggleFullscreen" class="dv-btn" :class="{ active: isFullscreen }">{{ isFullscreen ? '⊡' : '⊞' }}</button>
-        <button @click="viewer.closeDoc(modal.uid)" class="dv-close">✕</button>
+        <button
+          v-if="tocItems.length && !editing"
+          type="button"
+          class="dv-btn"
+          :class="{ active: showToc }"
+          title="Toggle Table of Contents"
+          @click="showToc = !showToc"
+        >
+          <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-toc"/></svg>
+          <span class="dv-btn-label">Outline</span>
+        </button>
+        <button
+          v-if="auth.user"
+          type="button"
+          class="dv-btn"
+          :class="{ active: editing }"
+          title="Edit document"
+          @click="editing = !editing"
+        >
+          <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-edit"/></svg>
+          <span class="dv-btn-label">{{ editing ? 'Close Editor' : 'Edit' }}</span>
+        </button>
+        <button
+          v-if="auth.user"
+          type="button"
+          class="dv-btn"
+          :class="{ active: showVersions }"
+          title="Version history"
+          @click="showVersions = !showVersions"
+        >
+          <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-history"/></svg>
+          <span class="dv-btn-label">History</span>
+        </button>
+        <button
+          v-if="auth.user"
+          type="button"
+          class="dv-btn"
+          :class="{ active: showSharePanel }"
+          title="Share document"
+          @click="showSharePanel = !showSharePanel"
+        >
+          <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-share"/></svg>
+          <span class="dv-btn-label">Share</span>
+        </button>
+        <button
+          v-if="auth.user"
+          type="button"
+          class="dv-btn"
+          title="Download Markdown"
+          @click="downloadDoc"
+        >
+          <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-download"/></svg>
+        </button>
+        <NuxtLink
+          v-if="doc?.id"
+          :to="`/documents/${doc.id}`"
+          class="dv-btn"
+          title="Open full page view"
+          @click="viewer.closeDoc(modal.uid)"
+        >
+          <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-external"/></svg>
+        </NuxtLink>
+        <button
+          v-if="auth.user"
+          type="button"
+          class="dv-btn dv-btn-danger"
+          title="Delete document"
+          @click="deleteDoc"
+        >
+          <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-trash"/></svg>
+        </button>
+        <button
+          v-if="!mobile"
+          type="button"
+          class="dv-btn"
+          :class="{ active: isFullscreen }"
+          :title="isFullscreen ? 'Restore window size' : 'Maximize window'"
+          @click="toggleFullscreen"
+        >
+          <svg class="ui-icon ui-icon--sm" aria-hidden="true">
+            <use :href="isFullscreen ? '#ui-minimize' : '#ui-maximize'"/>
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="dv-close"
+          title="Close (Esc)"
+          aria-label="Close document viewer"
+          @click="viewer.closeDoc(modal.uid)"
+        >
+          <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-close"/></svg>
+        </button>
       </div>
     </div>
 
     <!-- Scrollable body -->
-    <div class="dv-body" v-if="pending">
-      <div class="dv-status">Loading…</div>
+    <div v-if="pending" class="dv-body">
+      <div class="dv-status">Loading document…</div>
     </div>
-    <div class="dv-body" v-else-if="!doc">
+    <div v-else-if="!doc" class="dv-body">
       <div class="dv-status">Document not found.</div>
     </div>
-    <div class="dv-body" v-else>
-
+    <div v-else class="dv-body">
+      <!-- Metadata Strip -->
       <div class="dv-meta">
-        <NuxtLink v-if="doc.category" :to="`/categories/${doc.category}`" @click="viewer.closeDoc(modal.uid)" class="dv-tag">{{ doc.category }}</NuxtLink>
-        <NuxtLink v-for="tag in doc.tags" :key="tag" :to="`/tags/${tag}`" @click="viewer.closeDoc(modal.uid)" class="dv-tag">#{{ tag }}</NuxtLink>
+        <NuxtLink
+          v-if="doc.category"
+          :to="`/categories/${doc.category}`"
+          class="pill pill-accent"
+          @click="viewer.closeDoc(modal.uid)"
+        >
+          {{ doc.category }}
+        </NuxtLink>
+        <NuxtLink
+          v-for="tag in doc.tags"
+          :key="tag"
+          :to="`/tags/${tag}`"
+          class="pill"
+          @click="viewer.closeDoc(modal.uid)"
+        >
+          #{{ tag }}
+        </NuxtLink>
         <span class="dv-meta-right">
-          {{ doc.created_by }} · {{ formatDate(doc.updated_at) }}
-          <span v-if="doc.latest_version" class="dv-ver">v{{ doc.latest_version }}</span>
+          <span v-if="doc.created_by">By <strong>{{ doc.created_by }}</strong> · </span>
+          <span>{{ formatDate(doc.updated_at) }}</span>
+          <span v-if="doc.latest_version" class="pill pill-accent dv-ver">v{{ doc.latest_version }}</span>
+          <span v-if="doc.token_count_estimate" class="pill">~{{ doc.token_count_estimate }} tokens</span>
         </span>
       </div>
 
       <!-- Version history -->
       <div v-if="showVersions" class="dv-panel">
-        <h4>Version History</h4>
+        <div class="dv-panel-head">
+          <h4>Version History</h4>
+          <button type="button" class="btn btn-xs btn-ghost" @click="showVersions = false">Close</button>
+        </div>
         <div v-for="v in versions" :key="v.version_number" class="dv-ver-row">
-          <span class="dv-ver-num">v{{ v.version_number }}</span>
-          <span class="dv-ver-note">{{ v.change_note || 'No note' }}</span>
+          <span class="pill pill-accent">v{{ v.version_number }}</span>
+          <span class="dv-ver-note">{{ v.change_note || 'No change note' }}</span>
           <span class="dv-dimmed">{{ formatDate(v.created_at) }}</span>
-          <button v-if="v.version_number !== doc.latest_version" @click="rollback(v.version_number)" class="dv-btn">Rollback</button>
+          <button
+            v-if="v.version_number !== doc.latest_version"
+            type="button"
+            class="btn btn-xs"
+            @click="rollback(v.version_number)"
+          >
+            Rollback
+          </button>
         </div>
         <p v-if="!versions.length" class="dv-dimmed">No version history yet.</p>
       </div>
 
       <!-- Share panel -->
       <div v-if="showSharePanel" class="dv-panel">
-        <h4>Share Document</h4>
+        <div class="dv-panel-head">
+          <h4>Share Document</h4>
+          <button type="button" class="btn btn-xs btn-ghost" @click="showSharePanel = false">Close</button>
+        </div>
         <div class="dv-share-row">
-          <input v-model="shareSlug" placeholder="Custom URL (optional, e.g. release-notes)" class="dv-share-slug" />
-          <label class="dv-share-label"><input type="checkbox" v-model="shareWithCode" /> Require access code</label>
-          <input v-if="shareWithCode" v-model="shareCode" placeholder="Access code" class="dv-share-code" />
-          <button @click="createNewShare" class="dv-btn dv-btn-accent">Create Link</button>
+          <input
+            v-model="shareSlug"
+            placeholder="Custom URL slug (optional, e.g. release-notes)"
+            class="input-control dv-share-slug"
+          />
+          <label class="dv-share-label">
+            <input v-model="shareWithCode" type="checkbox" />
+            <span>Require access code</span>
+          </label>
+          <input
+            v-if="shareWithCode"
+            v-model="shareCode"
+            placeholder="Access code"
+            class="input-control dv-share-code"
+          />
+          <button type="button" class="btn btn-sm btn-primary" @click="createNewShare">Create Link</button>
         </div>
         <p v-if="slugCheck.message" class="dv-slug-status" :class="slugCheck.ok ? 'dv-slug-ok' : 'dv-slug-bad'">
           {{ slugCheck.message }}
-          <button v-if="slugCheck.suggestion" type="button" class="dv-suggest-btn" @click="shareSlug = slugCheck.suggestion">
+          <button
+            v-if="slugCheck.suggestion"
+            type="button"
+            class="btn btn-xs btn-soft"
+            @click="shareSlug = slugCheck.suggestion"
+          >
             Use “{{ slugCheck.suggestion }}”
           </button>
         </p>
         <p v-if="shareError" class="dv-share-error">{{ shareError }}</p>
         <div v-if="newShareUrl" class="dv-share-result">
           <div class="dv-share-url-row">
-            <input :value="newShareUrl" readonly @click="$event.target.select()" />
-            <button @click="copyShareUrl" class="dv-btn">{{ copied ? '✓' : 'Copy' }}</button>
+            <input :value="newShareUrl" readonly class="input-control" @click="$event.target.select()" />
+            <button type="button" class="btn btn-sm btn-primary" @click="copyShareUrl">
+              {{ copied ? '✓ Copied' : 'Copy' }}
+            </button>
           </div>
-          <p v-if="newShareHasCode" class="dv-dimmed">🔒 Access code required</p>
+          <p v-if="newShareHasCode" class="dv-dimmed" style="margin-top:6px;">Protected with access code</p>
         </div>
         <div v-if="shares.length" class="dv-share-list">
           <div v-for="s in shares" :key="s.id" class="dv-share-item">
-            <span class="dv-share-icon">{{ s.has_access_code ? '🔒' : '🔗' }}</span>
-            <input :value="shareUrl(s)" readonly @click="$event.target.select()" class="dv-share-item-url" />
+            <span class="pill" :class="s.has_access_code ? 'pill-warning' : 'pill-success'">
+              {{ s.has_access_code ? 'Code' : 'Public' }}
+            </span>
+            <input
+              :value="shareUrl(s)"
+              readonly
+              class="input-control dv-share-item-url"
+              @click="$event.target.select()"
+            />
             <span class="dv-dimmed">{{ formatDate(s.created_at) }}</span>
-            <button @click="copyUrl(s)" class="dv-btn">{{ copiedId === s.id ? '✓' : 'Copy' }}</button>
-            <button @click="renameShare(s)" class="dv-btn" :title="s.slug ? 'Rename custom URL' : 'Add custom URL'">{{ s.slug ? 'Rename' : 'Slug' }}</button>
-            <button @click="revokeShare(s.id)" class="dv-btn dv-btn-danger">Revoke</button>
+            <button type="button" class="btn btn-xs" @click="copyUrl(s)">
+              {{ copiedId === s.id ? '✓' : 'Copy' }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-xs"
+              :title="s.slug ? 'Rename custom URL' : 'Add custom URL'"
+              @click="renameShare(s)"
+            >
+              {{ s.slug ? 'Rename' : 'Alias' }}
+            </button>
+            <button type="button" class="btn btn-xs btn-danger" @click="revokeShare(s.id)">Revoke</button>
           </div>
         </div>
       </div>
 
-      <!-- Editor -->
+      <!-- Editor (Source / Split / Preview) -->
       <div v-if="editing" class="dv-editor">
-        <input v-model="editForm.title" placeholder="Title" />
-        <input v-model="editForm.description" placeholder="Description" />
-        <input v-model="editForm.category" placeholder="Category" />
-        <input v-model="editForm.tagsInput" placeholder="Tags (comma separated)" />
-        <div class="dv-mode-toggle">
-          <button :class="{ active: editorMode === 'source' }" @click="editorMode = 'source'">Source</button>
-          <button :class="{ active: editorMode === 'preview' }" @click="editorMode = 'preview'">Preview</button>
+        <div class="dv-editor-meta-grid">
+          <input v-model="editForm.title" class="input-control" placeholder="Document Title" />
+          <input v-model="editForm.category" class="input-control" placeholder="Category" />
+          <input v-model="editForm.description" class="input-control" placeholder="Short description" />
+          <input v-model="editForm.tagsInput" class="input-control" placeholder="Tags (comma separated)" />
         </div>
-        <textarea v-if="editorMode === 'source'" v-model="editForm.content_md" class="dv-textarea" />
-        <div v-else ref="previewEl" class="dv-content dv-preview" v-html="editPreviewHtml" @click="onContentClick" />
+        <div class="dv-editor-toolbar">
+          <div class="dv-mode-toggle">
+            <button type="button" :class="{ active: editorMode === 'source' }" @click="editorMode = 'source'">Markdown</button>
+            <button v-if="!mobile" type="button" :class="{ active: editorMode === 'split' }" @click="editorMode = 'split'">Split View</button>
+            <button type="button" :class="{ active: editorMode === 'preview' }" @click="editorMode = 'preview'">Preview</button>
+          </div>
+        </div>
+        <div class="dv-editor-panes" :class="{ 'dv-editor-panes--split': editorMode === 'split' && !mobile }">
+          <textarea
+            v-if="editorMode === 'source' || (editorMode === 'split' && !mobile)"
+            v-model="editForm.content_md"
+            class="textarea-control dv-textarea"
+            placeholder="Write markdown here…"
+          />
+          <div
+            v-if="editorMode === 'preview' || (editorMode === 'split' && !mobile)"
+            ref="previewEl"
+            class="markdown-body dv-preview"
+            v-html="editPreviewHtml"
+            @click="handleAnchorClick"
+          />
+        </div>
         <div class="dv-editor-actions">
-          <input v-model="editForm.change_note" placeholder="Change note (optional)" />
-          <button @click="saveEdit" class="dv-btn dv-btn-accent">Save</button>
+          <input v-model="editForm.change_note" class="input-control" placeholder="Version change note (optional)" />
+          <button type="button" class="btn" @click="editing = false">Cancel</button>
+          <button type="button" class="btn btn-primary" @click="saveEdit">Save Changes</button>
         </div>
       </div>
 
-      <!-- Rendered markdown -->
-      <div v-else ref="contentEl" class="dv-content" v-html="renderedContent" @click="onContentClick" />
+      <!-- Rendered Markdown + Optional TOC Sidebar -->
+      <div v-else class="dv-reader-layout" :class="{ 'dv-reader-layout--toc': showToc && tocItems.length }">
+        <aside v-if="showToc && tocItems.length" class="dv-toc">
+          <p class="dv-toc-title">On this page</p>
+          <nav>
+            <a
+              v-for="item in tocItems"
+              :key="item.id"
+              :href="`#${item.id}`"
+              :class="`dv-toc-link dv-toc-level-${item.level}`"
+              @click.prevent="scrollToHeading(item.id)"
+            >
+              {{ item.text }}
+            </a>
+          </nav>
+        </aside>
+        <div
+          ref="contentEl"
+          class="markdown-body dv-content"
+          v-html="renderedContent"
+          @click="handleAnchorClick"
+        />
+      </div>
     </div>
 
     <!-- Resize handles (desktop only, not in fullscreen) -->
     <template v-if="!mobile && !isFullscreen">
-      <div class="dv-resize-e"  @mousedown.prevent.stop="startResize('e', $event)"></div>
-      <div class="dv-resize-s"  @mousedown.prevent.stop="startResize('s', $event)"></div>
+      <div class="dv-resize-e" @mousedown.prevent.stop="startResize('e', $event)"></div>
+      <div class="dv-resize-s" @mousedown.prevent.stop="startResize('s', $event)"></div>
       <div class="dv-resize-se" @mousedown.prevent.stop="startResize('se', $event)"></div>
     </template>
   </div>
 </template>
 
 <script setup>
-import { marked } from 'marked'
-import hljs from 'highlight.js'
-import DOMPurify from 'dompurify'
-
 const props = defineProps({
   modal: { type: Object, required: true },
   mobile: { type: Boolean, default: false },
@@ -128,12 +319,12 @@ const props = defineProps({
 const viewer = useDocViewer()
 const api = useApi()
 const auth = useAuth()
-const router = useRouter()
 const { render: renderMermaid } = useMermaid()
+const { renderDocHtml, extractToc, handleAnchorClick } = useMarkdown()
 
-// Refs to the rendered-content containers, used to scope mermaid diagram rendering.
 const contentEl = ref(null)
 const previewEl = ref(null)
+const showToc = ref(false)
 
 // ── Fullscreen ────────────────────────────────────────────────────────────────
 const isFullscreen = ref(false)
@@ -141,21 +332,18 @@ const savedBounds = ref(null)
 
 function toggleFullscreen() {
   if (isFullscreen.value) {
-    // Restore previous bounds
     if (savedBounds.value) {
       viewer.updateModal(props.modal.uid, savedBounds.value)
       savedBounds.value = null
     }
     isFullscreen.value = false
   } else {
-    // Save current bounds and go fullscreen
     savedBounds.value = { x: props.modal.x, y: props.modal.y, width: props.modal.width, height: props.modal.height }
     viewer.updateModal(props.modal.uid, { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight })
     isFullscreen.value = true
   }
 }
 
-// ── Style ─────────────────────────────────────────────────────────────────────
 const modalStyle = computed(() => {
   if (props.mobile) return { zIndex: props.modal.zIndex }
   if (isFullscreen.value) return { left: 0, top: 0, width: '100vw', height: '100dvh', zIndex: props.modal.zIndex, borderRadius: 0 }
@@ -172,16 +360,11 @@ function onModalMousedown() {
   viewer.focusModal(props.modal.uid)
 }
 
-// In-page anchor links (#section) must scroll within the modal's own scroll
-// container, not trigger native window/route hash navigation.
-function onContentClick(e) {
-  const a = e.target.closest('a[href^="#"]')
-  if (!a) return
-  const id = decodeURIComponent((a.getAttribute('href') || '').slice(1))
-  if (!id) return
-  const target = e.currentTarget.querySelector(`[id="${CSS.escape(id)}"]`)
+function scrollToHeading(id) {
+  if (!contentEl.value) return
+  const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id
+  const target = contentEl.value.querySelector(`[id="${escaped}"]`)
   if (target) {
-    e.preventDefault()
     target.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 }
@@ -223,8 +406,8 @@ function onResizeMove(e) {
   if (!resizing) return
   const dx = e.clientX - _resStartX, dy = e.clientY - _resStartY
   const updates = {}
-  if (resizeDir === 'e' || resizeDir === 'se') updates.width = Math.max(380, _resStartW + dx)
-  if (resizeDir === 's' || resizeDir === 'se') updates.height = Math.max(280, _resStartH + dy)
+  if (resizeDir === 'e' || resizeDir === 'se') updates.width = Math.max(420, _resStartW + dx)
+  if (resizeDir === 's' || resizeDir === 'se') updates.height = Math.max(320, _resStartH + dy)
   viewer.updateModal(props.modal.uid, updates)
 }
 function onResizeUp() {
@@ -246,7 +429,7 @@ const pending = ref(false)
 const editing = ref(false)
 const showVersions = ref(false)
 const showSharePanel = ref(false)
-const editorMode = ref('source')
+const editorMode = ref('split')
 const editForm = ref({ title: '', description: '', category: '', tagsInput: '', content_md: '', change_note: '' })
 const versions = ref([])
 const shares = ref([])
@@ -259,15 +442,6 @@ const newShareHasCode = ref(false)
 const copied = ref(false)
 const copiedId = ref(null)
 const slugCheck = reactive({ ok: false, message: '', suggestion: '' })
-
-if (import.meta.client) {
-  marked.setOptions({
-    highlight: (code, lang) => {
-      if (lang && hljs.getLanguage(lang)) return hljs.highlight(code, { language: lang }).value
-      return hljs.highlightAuto(code).value
-    }
-  })
-}
 
 watch(() => props.modal.docId, async (id) => {
   if (!id) { doc.value = null; return }
@@ -282,6 +456,7 @@ watch(() => props.modal.docId, async (id) => {
 
 watch(editing, (val) => {
   if (val && doc.value) {
+    editorMode.value = props.mobile ? 'source' : 'split'
     editForm.value = {
       title: doc.value.title,
       description: doc.value.description || '',
@@ -302,57 +477,16 @@ watch(showVersions, async (val) => {
 
 watch(showSharePanel, (val) => { if (val) loadShares() })
 
-// Collapse blank lines inside <svg> blocks so marked doesn't break them into <p> tags
-function fixSvgBlocks(md) {
-  return md.replace(/<svg[\s\S]*?<\/svg>/gi, m => m.replace(/\n\s*\n/g, '\n'))
-}
+const tocItems = computed(() => extractToc(doc.value?.content_md || ''))
+const renderedContent = computed(() => renderDocHtml(doc.value, props.modal.docId))
+const editPreviewHtml = computed(() => renderDocHtml(editForm.value.content_md, props.modal.docId))
 
-// GitHub-style heading slug so in-page anchor links (#section) work.
-function slugifyHeading(text) {
-  return String(text).trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-')
-}
-
-// Render markdown with id attributes on headings (marked v11 strips them by default).
-function mdToHtml(md) {
-  const renderer = new marked.Renderer()
-  const seen = Object.create(null)
-  renderer.heading = function (text, level, raw) {
-    let id = slugifyHeading(raw)
-    if (!id) return `<h${level}>${text}</h${level}>\n`
-    if (seen[id] !== undefined) { seen[id]++; id = `${id}-${seen[id]}` } else { seen[id] = 0 }
-    return `<h${level} id="${id}">${text}</h${level}>\n`
-  }
-  const origCode = renderer.code.bind(renderer)
-  renderer.code = function (code, infostring, escaped) {
-    const lang = (infostring || '').match(/^\S*/)?.[0] || ''
-    if (lang === 'mermaid') return `<pre class="mermaid">${code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>\n`
-    return origCode(code, infostring, escaped)
-  }
-  return marked(fixSvgBlocks(md), { renderer })
-}
-
-const renderedContent = computed(() => {
-  if (!doc.value) return ''
-  let html = doc.value.content_html || mdToHtml(doc.value.content_md || '')
-  html = html.replace(/(<img\s[^>]*src=")(?!https?:|data:|\/)(.*?)(")/g,
-    `$1/api/v1/documents/${props.modal.docId}/assets/$2$3`)
-  return DOMPurify.sanitize(html)
-})
-
-const editPreviewHtml = computed(() => {
-  if (!editForm.value.content_md) return ''
-  let html = mdToHtml(editForm.value.content_md)
-  html = html.replace(/(<img\s[^>]*src=")(?!https?:|data:|\/)(.*?)(")/g,
-    `$1/api/v1/documents/${props.modal.docId}/assets/$2$3`)
-  return DOMPurify.sanitize(html)
-})
-
-// Render any mermaid diagrams once the markdown HTML is in the DOM.
 watch(renderedContent, async () => {
   await nextTick()
   renderMermaid(contentEl.value)
 }, { immediate: true })
-watch(editPreviewHtml, async () => {
+
+watch([editPreviewHtml, editorMode], async () => {
   await nextTick()
   renderMermaid(previewEl.value)
 })
@@ -370,6 +504,7 @@ async function saveEdit() {
   })
   editing.value = false
   doc.value = await api.getDocument(props.modal.docId)
+  useFolderPanel().notifyFolderChange()
 }
 
 async function rollback(targetVersion) {
@@ -391,13 +526,11 @@ async function downloadDoc() { await api.downloadDocument(props.modal.docId) }
 function apiErrMessage(e) {
   return e?.data?.error?.message || e?.response?._data?.error?.message || e?.message || 'Request failed.'
 }
-
 function resetSlugCheck() { slugCheck.ok = false; slugCheck.message = ''; slugCheck.suggestion = '' }
 function apiErrSuggestion(e) {
   return e?.data?.error?.suggestion || e?.response?._data?.error?.suggestion || ''
 }
 
-// Debounced live availability check for the custom slug while typing.
 let slugCheckTimer = null
 watch(shareSlug, (val) => {
   resetSlugCheck()
@@ -448,12 +581,12 @@ async function renameShare(s) {
   const next = prompt(
     s.slug
       ? `Rename custom URL for this share.\nCurrent: ${s.slug}\nLeave blank to clear and fall back to the random token.`
-      : `Set a custom URL (slug) for this share. Letters, digits, dot, underscore, hyphen; max 64 chars.\nLeaving blank cancels.`,
+      : `Set a custom URL (slug) for this share. Letters, digits, underscore, hyphen; max 64 chars.\nLeaving blank cancels.`,
     s.slug || ''
   )
   if (next === null) return
   let trimmed = next.trim()
-  if (!trimmed && !s.slug) return  // nothing to do
+  if (!trimmed && !s.slug) return
   while (true) {
     try {
       await api.updateShare(s.id, { slug: trimmed || null })
@@ -472,13 +605,11 @@ async function renameShare(s) {
 function shareUrl(s) {
   return `${window.location.origin}/share/${s.slug || s.token}`
 }
-
 async function copyShareUrl() {
   await navigator.clipboard.writeText(newShareUrl.value)
   copied.value = true
   setTimeout(() => { copied.value = false }, 2000)
 }
-
 async function copyUrl(s) {
   await navigator.clipboard.writeText(shareUrl(s))
   copiedId.value = s.id
@@ -490,142 +621,486 @@ async function copyUrl(s) {
 .dv-modal {
   position: fixed;
   background: var(--surface);
-  border-radius: 8px;
-  box-shadow: 0 8px 40px rgba(0,0,0,0.35);
-  display: flex; flex-direction: column;
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  min-width: 320px; min-height: 240px;
-  border: 1px solid var(--border2);
+  min-width: 360px;
+  min-height: 260px;
+  border: 1px solid var(--line-strong);
 }
 
-/* Mobile: full screen */
 .dv-modal--mobile {
-  left: 0 !important; top: 0 !important;
-  width: 100vw !important; height: 100dvh !important;
+  left: 0 !important;
+  top: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
   border-radius: 0;
   border: none;
 }
 
-/* ── Header ─────────────────────────────────────────────────────────────── */
 .dv-header {
-  display: flex; align-items: center; gap: 0.5rem;
-  padding: 0.55rem 0.75rem;
-  background: var(--surface2);
-  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--raised);
+  border-bottom: 1px solid var(--line);
   cursor: move;
   flex-shrink: 0;
   user-select: none;
 }
-.dv-modal--mobile .dv-header { cursor: default; }
-.dv-title {
-  flex: 1; font-weight: 600; font-size: 0.92rem; color: var(--text);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+
+.dv-modal--mobile .dv-header,
+.dv-modal--fullscreen .dv-header {
+  cursor: default;
 }
-.dv-header-actions { display: flex; gap: 0.3rem; align-items: center; flex-shrink: 0; }
+
+.dv-title-group {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dv-doc-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.dv-title {
+  font-weight: 700;
+  font-size: 14.5px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dv-header-actions {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  flex-shrink: 0;
+}
 
 .dv-btn {
-  padding: 0.18rem 0.5rem; font-size: 0.76rem;
-  border: 1px solid var(--border2); border-radius: 4px;
-  cursor: pointer; background: var(--surface); color: var(--text); white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  cursor: pointer;
+  background: var(--surface);
+  color: var(--ink-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
-.dv-btn:hover { background: var(--hover-bg); }
-.dv-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
-.dv-btn-accent { background: var(--accent); color: white; border-color: var(--accent); }
-.dv-btn-accent:hover { background: var(--accent-hover); }
-.dv-btn-danger { border-color: var(--danger); color: var(--danger); }
-.dv-btn-danger:hover { background: var(--danger); color: white; }
+
+.dv-btn:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.dv-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.dv-btn-danger {
+  color: var(--danger);
+  border-color: var(--danger-border);
+}
+
+.dv-btn-danger:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
 
 .dv-close {
-  background: none; border: none; font-size: 1.05rem; cursor: pointer;
-  color: var(--text3); padding: 0.1rem 0.3rem; border-radius: 4px; line-height: 1;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
 }
-.dv-close:hover { background: var(--hover-bg); color: var(--text); }
 
-/* ── Body ────────────────────────────────────────────────────────────────── */
-.dv-body { flex: 1; overflow-y: auto; padding: 1rem 1.25rem; }
-.dv-status { text-align: center; padding: 2rem; color: var(--text3); }
+.dv-close:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.dv-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 26px 28px;
+}
+
+.dv-status {
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--muted);
+}
 
 .dv-meta {
-  display: flex; gap: 0.35rem; flex-wrap: wrap; align-items: center;
-  margin-bottom: 1rem; font-size: 0.8rem;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
 }
-.dv-tag { color: var(--accent); text-decoration: none; background: var(--surface2); padding: 0.1rem 0.4rem; border-radius: 3px; }
-.dv-tag:hover { text-decoration: underline; }
-.dv-meta-right { margin-left: auto; color: var(--text3); }
-.dv-ver { background: var(--active-bg); color: var(--active-color); padding: 0.1rem 0.3rem; border-radius: 3px; margin-left: 0.3rem; font-size: 0.76rem; }
 
-/* ── Panels ──────────────────────────────────────────────────────────────── */
-.dv-panel { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem; margin-bottom: 1rem; }
-.dv-panel h4 { margin: 0 0 0.5rem; font-size: 0.88rem; color: var(--text); }
-.dv-ver-row { display: flex; gap: 0.6rem; align-items: center; padding: 0.3rem 0; font-size: 0.82rem; border-top: 1px solid var(--border); }
-.dv-ver-num { font-weight: bold; color: var(--accent); min-width: 2rem; }
-.dv-ver-note { flex: 1; color: var(--text2); }
-.dv-dimmed { color: var(--text3); font-size: 0.8rem; }
+.dv-meta-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
 
-.dv-share-row { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-bottom: 0.5rem; }
-.dv-share-label { display: flex; align-items: center; gap: 0.3rem; font-size: 0.83rem; cursor: pointer; color: var(--text); }
-.dv-share-code { padding: 0.28rem 0.45rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.83rem; width: 130px; background: var(--surface); color: var(--text); }
-.dv-share-slug { padding: 0.28rem 0.45rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.83rem; width: 220px; background: var(--surface); color: var(--text); font-family: monospace; }
-.dv-share-error { color: var(--danger, #c0392b); font-size: 0.8rem; margin: 0 0 0.4rem 0; }
-.dv-slug-status { font-size: 0.78rem; margin: 0 0 0.4rem 0; }
+/* ── Sub-panels (History & Share) ──────────────────────────────────────── */
+.dv-panel {
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+}
+
+.dv-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.dv-panel-head h4 {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.dv-ver-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  font-size: 12.5px;
+  border-top: 1px solid var(--line);
+}
+
+.dv-ver-note {
+  flex: 1;
+  color: var(--ink-secondary);
+}
+
+.dv-dimmed {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dv-share-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.dv-share-slug {
+  flex: 1 1 220px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+}
+
+.dv-share-code {
+  width: 140px;
+}
+
+.dv-share-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.dv-share-error {
+  color: var(--danger);
+  font-size: 12.5px;
+  margin-bottom: 8px;
+}
+
+.dv-slug-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
 .dv-slug-ok { color: var(--success); }
 .dv-slug-bad { color: var(--danger); }
-.dv-suggest-btn { margin-left: 0.4rem; padding: 0.08rem 0.4rem; font-size: 0.72rem; background: var(--surface2); color: var(--accent); border: 1px solid var(--border2); border-radius: 4px; cursor: pointer; }
-.dv-suggest-btn:hover { border-color: var(--accent); }
-.dv-share-result { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 0.45rem; margin-bottom: 0.4rem; }
-.dv-share-url-row { display: flex; gap: 0.3rem; }
-.dv-share-url-row input { flex: 1; padding: 0.28rem 0.4rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.8rem; font-family: monospace; background: var(--surface2); color: var(--text); }
-.dv-share-list { border-top: 1px solid var(--border); padding-top: 0.4rem; }
-.dv-share-item { display: flex; gap: 0.4rem; align-items: center; padding: 0.25rem 0; font-size: 0.8rem; color: var(--text2); flex-wrap: wrap; }
-.dv-share-icon { flex-shrink: 0; }
-.dv-share-item-url { flex: 1; min-width: 0; padding: 0.2rem 0.35rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.75rem; font-family: monospace; background: var(--surface2); color: var(--text); cursor: text; }
 
-/* ── Editor ──────────────────────────────────────────────────────────────── */
-.dv-editor { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1rem; }
-.dv-editor input { padding: 0.38rem 0.5rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.86rem; background: var(--surface2); color: var(--text); }
-.dv-textarea { padding: 0.5rem; border: 1px solid var(--border2); border-radius: 4px; font-family: 'Fira Code', monospace; font-size: 0.86rem; line-height: 1.5; background: var(--surface2); color: var(--text); resize: vertical; min-height: 180px; }
-.dv-mode-toggle { display: flex; border: 1px solid var(--border2); border-radius: 4px; overflow: hidden; width: fit-content; }
-.dv-mode-toggle button { padding: 0.28rem 0.65rem; border: none; background: var(--surface2); cursor: pointer; font-size: 0.8rem; color: var(--text); }
-.dv-mode-toggle button.active { background: var(--accent); color: white; }
-.dv-preview { min-height: 180px; border: 1px solid var(--border2); border-radius: 4px; padding: 0.75rem; background: var(--surface); }
-.dv-editor-actions { display: flex; gap: 0.4rem; }
-.dv-editor-actions input { flex: 1; }
-
-/* ── Content ─────────────────────────────────────────────────────────────── */
-.dv-content { line-height: 1.8; color: var(--text); }
-.dv-content :deep(h1), .dv-content :deep(h2), .dv-content :deep(h3) { margin: 1.5rem 0 0.5rem; color: var(--text); }
-.dv-content :deep(p) { margin-bottom: 1rem; }
-.dv-content :deep(pre) { background: var(--surface2); padding: 1rem; border-radius: 4px; overflow-x: auto; }
-.dv-content :deep(code) { font-family: 'Fira Code', monospace; font-size: 0.9em; }
-.dv-content :deep(ul), .dv-content :deep(ol) { margin-left: 1.5rem; margin-bottom: 1rem; }
-.dv-content :deep(blockquote) { border-left: 4px solid var(--accent); padding-left: 1rem; margin: 1rem 0; color: var(--text2); }
-.dv-content :deep(a) { color: var(--accent); }
-.dv-content :deep(table) { border-collapse: collapse; width: 100%; margin-bottom: 1rem; }
-.dv-content :deep(th), .dv-content :deep(td) { border: 1px solid var(--border2); padding: 0.4rem 0.6rem; }
-.dv-content :deep(th) { background: var(--surface2); }
-.dv-content :deep(img) { max-width: 100%; border-radius: 4px; }
-
-/* ── Resize handles ──────────────────────────────────────────────────────── */
-.dv-resize-se {
-  position: absolute; bottom: 0; right: 0;
-  width: 18px; height: 18px; cursor: se-resize; z-index: 10;
+.dv-share-result {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 10px;
 }
+
+.dv-share-url-row {
+  display: flex;
+  gap: 8px;
+}
+
+.dv-share-list {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.dv-share-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.dv-share-item-url {
+  flex: 1;
+  min-width: 180px;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ── Editor ────────────────────────────────────────────────────────────── */
+.dv-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dv-editor-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.dv-editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dv-mode-toggle {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--raised);
+}
+
+.dv-mode-toggle button {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.dv-mode-toggle button.active {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+
+.dv-editor-panes--split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.dv-textarea {
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  min-height: 360px;
+  resize: vertical;
+}
+
+.dv-preview {
+  min-height: 360px;
+  max-height: 600px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 20px;
+  background: var(--surface);
+}
+
+.dv-editor-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.dv-editor-actions .input-control {
+  flex: 1;
+}
+
+/* ── Reader + TOC Layout ───────────────────────────────────────────────── */
+.dv-reader-layout--toc {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.dv-toc {
+  position: sticky;
+  top: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--raised);
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.dv-toc-title {
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.dv-toc nav {
+  display: grid;
+  gap: 4px;
+}
+
+.dv-toc-link {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-secondary);
+  text-decoration: none;
+  line-height: 1.35;
+  padding: 3px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dv-toc-link:hover {
+  color: var(--accent);
+}
+
+.dv-toc-level-2 {
+  padding-left: 10px;
+}
+
+.dv-toc-level-3 {
+  padding-left: 20px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* ── Resize Handles ────────────────────────────────────────────────────── */
+.dv-resize-se {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 18px;
+  height: 18px;
+  cursor: se-resize;
+  z-index: 10;
+}
+
 .dv-resize-se::after {
   content: '';
-  position: absolute; bottom: 3px; right: 3px;
-  width: 9px; height: 9px;
-  border-right: 2px solid var(--border2);
-  border-bottom: 2px solid var(--border2);
-  border-radius: 1px;
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--line-strong);
+  border-bottom: 2px solid var(--line-strong);
 }
+
 .dv-resize-e {
-  position: absolute; top: 40px; right: 0;
-  width: 5px; height: calc(100% - 58px); cursor: ew-resize; z-index: 10;
+  position: absolute;
+  top: 48px;
+  right: 0;
+  width: 5px;
+  height: calc(100% - 66px);
+  cursor: ew-resize;
+  z-index: 10;
 }
-.dv-resize-e:hover { background: var(--accent); opacity: 0.3; }
+
+.dv-resize-e:hover {
+  background: var(--accent-solid);
+  opacity: 0.3;
+}
+
 .dv-resize-s {
-  position: absolute; bottom: 0; left: 18px;
-  height: 5px; width: calc(100% - 36px); cursor: ns-resize; z-index: 10;
+  position: absolute;
+  bottom: 0;
+  left: 18px;
+  height: 5px;
+  width: calc(100% - 36px);
+  cursor: ns-resize;
+  z-index: 10;
 }
-.dv-resize-s:hover { background: var(--accent); opacity: 0.3; }
+
+.dv-resize-s:hover {
+  background: var(--accent-solid);
+  opacity: 0.3;
+}
+
+@media (max-width: 720px) {
+  .dv-btn-label {
+    display: none;
+  }
+  .dv-body {
+    padding: 16px;
+  }
+  .dv-editor-meta-grid,
+  .dv-reader-layout--toc {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

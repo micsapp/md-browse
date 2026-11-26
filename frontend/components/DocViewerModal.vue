@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <!-- Desktop: multiple non-blocking floating modals (no overlay) -->
+    <!-- Desktop: multiple non-blocking floating modals -->
     <template v-if="!isMobile">
       <DocViewerModalItem
         v-for="modal in viewer.modals.value"
@@ -10,7 +10,7 @@
       />
     </template>
 
-    <!-- Mobile: single full-screen blocking modal -->
+    <!-- Mobile: single full-screen modal -->
     <template v-else-if="viewer.modals.value.length">
       <div class="mobile-overlay" @click.self="closeMobile"></div>
       <DocViewerModalItem
@@ -23,7 +23,6 @@
 
 <script setup>
 const viewer = useDocViewer()
-
 const isMobile = ref(false)
 
 if (import.meta.client) {
@@ -31,7 +30,6 @@ if (import.meta.client) {
   onMounted(() => {
     update()
     window.addEventListener('resize', update)
-    // Escape key: close topmost modal
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && viewer.modals.value.length) {
         const top = [...viewer.modals.value].sort((a, b) => b.zIndex - a.zIndex)[0]
@@ -51,8 +49,10 @@ function closeMobile() {
 
 <style scoped>
 .mobile-overlay {
-  position: fixed; inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 18, 32, 0.58);
+  backdrop-filter: blur(2px);
   z-index: 819;
 }
 </style>

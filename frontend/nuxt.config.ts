@@ -11,7 +11,8 @@ export default defineNuxtConfig({
     head: {
       viewport: 'width=device-width, initial-scale=1',
       meta: [
-        { name: 'theme-color', content: '#2c3e50' },
+        { name: 'theme-color', content: '#f6f8fb' },
+        { name: 'color-scheme', content: 'light dark' },
         { name: 'apple-mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' }
       ],
@@ -20,7 +21,7 @@ export default defineNuxtConfig({
       ],
       script: [
         {
-          innerHTML: `if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(reg){if(reg.active&&reg.active.scriptURL.includes('/sw.js')){reg.unregister()}})})}`
+          innerHTML: `(function(){try{var s=localStorage.getItem('theme');var d=s==='dark'||(s!=='light'&&window.matchMedia('(prefers-color-scheme: dark)').matches);var t=d?'dark':'light';var r=document.documentElement;r.setAttribute('data-theme',t);r.style.colorScheme=t;r.style.backgroundColor=d?'#101722':'#f6f8fb';}catch(_){}})();if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(reg){if(reg.active&&reg.active.scriptURL.includes('/sw.js')){reg.unregister()}})})}`
         }
       ]
     }
@@ -35,16 +36,16 @@ export default defineNuxtConfig({
       buildTime
     }
   },
-  css: ['~/assets/hljs-theme.css'],
+  css: ['~/assets/hljs-theme.css', '~/assets/workspace.css'],
   pwa: {
     registerType: 'autoUpdate',
     filename: `sw-${buildHash}.js`,
     manifest: {
       name: appName,
       short_name: appName,
-      description: 'Markdown document browser',
-      theme_color: '#2c3e50',
-      background_color: '#f5f5f5',
+      description: 'Markdown document browser and knowledge workspace',
+      theme_color: '#365ec9',
+      background_color: '#f6f8fb',
       display: 'standalone',
       orientation: 'portrait-primary',
       icons: [

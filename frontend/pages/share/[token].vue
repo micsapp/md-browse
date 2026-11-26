@@ -1,45 +1,99 @@
 <template>
   <div class="share-page">
-    <div v-if="needCode && !authorized" class="code-prompt">
-      <h2>🔒 Access Code Required</h2>
-      <p>This document is protected. Enter the access code to view it.</p>
-      <div class="code-form">
-        <input v-model="codeInput" type="password" placeholder="Access code" @keyup.enter="submitCode" />
-        <button @click="submitCode">Submit</button>
+    <!-- Access Code Prompt -->
+    <div v-if="needCode && !authorized" class="surface-card code-prompt">
+      <div class="code-lock-badge">
+        <svg class="ui-icon ui-icon--lg" aria-hidden="true"><use href="#ui-lock"/></svg>
       </div>
-      <p v-if="codeError" class="error-msg">Invalid access code</p>
+      <h2>Protected Document</h2>
+      <p>This shared document requires an access code to view.</p>
+      <form class="code-form" @submit.prevent="submitCode">
+        <input
+          v-model="codeInput"
+          type="password"
+          class="input-control"
+          placeholder="Enter access code"
+          autofocus
+        />
+        <button type="submit" class="btn btn-primary">Unlock Document</button>
+      </form>
+      <p v-if="codeError" class="error-msg">Invalid access code. Please try again.</p>
     </div>
-    <div v-else-if="error" class="error">{{ errorMessage }}</div>
-    <div v-else-if="!doc" class="loading">Loading...</div>
-    <article v-else class="document">
-      <header class="doc-header">
-        <h1>{{ doc.title }}</h1>
-        <div class="meta">
-          <span v-if="doc.category">Category: {{ doc.category }}</span>
-          <span>By {{ doc.created_by }}</span>
-          <span>Updated: {{ formatDate(doc.updated_at) }}</span>
+
+    <div v-else-if="error" class="surface-card share-status share-status--error">{{ errorMessage }}</div>
+    <div v-else-if="!doc" class="surface-card share-status">Loading shared document…</div>
+
+    <article v-else class="share-article">
+      <header class="surface-card share-hero">
+        <div class="share-hero-top">
+          <div class="share-badges">
+            <span class="pill pill-accent">Shared Document</span>
+            <span v-if="doc.category && doc.category !== 'uncategorized'" class="pill">{{ doc.category }}</span>
+            <span v-for="tag in doc.tags" :key="tag" class="pill">#{{ tag }}</span>
+          </div>
+          <div class="share-actions">
+            <button
+              v-if="tocItems.length"
+              type="button"
+              class="btn btn-sm"
+              :class="{ 'btn-soft': showToc }"
+              @click="showToc = !showToc"
+            >
+              <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-toc"/></svg>
+              <span>Outline</span>
+            </button>
+            <button type="button" class="btn btn-sm" @click="copyCurrentLink">
+              <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-copy"/></svg>
+              <span>{{ linkCopied ? '✓ Link Copied' : 'Copy Link' }}</span>
+            </button>
+          </div>
         </div>
-        <div v-if="doc.tags?.length" class="tags">
-          <span v-for="tag in doc.tags" :key="tag" class="tag">{{ tag }}</span>
+
+        <h1 class="share-title">{{ doc.title }}</h1>
+        <p v-if="doc.description" class="share-desc">{{ doc.description }}</p>
+
+        <div class="share-byline">
+          <span v-if="doc.created_by">By <strong>{{ doc.created_by }}</strong></span>
+          <span v-if="doc.created_by && doc.updated_at">·</span>
+          <span v-if="doc.updated_at">Updated {{ formatDate(doc.updated_at) }}</span>
         </div>
-        <div class="shared-badge">Shared document</div>
       </header>
-      <div ref="contentEl" class="content" v-html="renderedContent" />
+
+      <div class="share-reader-grid" :class="{ 'share-reader-grid--toc': showToc && tocItems.length }">
+        <aside v-if="showToc && tocItems.length" class="surface-card share-toc">
+          <p class="share-toc-title">On this page</p>
+          <nav>
+            <a
+              v-for="item in tocItems"
+              :key="item.id"
+              :href="`#${item.id}`"
+              :class="`share-toc-link share-toc-level-${item.level}`"
+              @click.prevent="scrollToHeading(item.id)"
+            >
+              {{ item.text }}
+            </a>
+          </nav>
+        </aside>
+
+        <div
+          ref="contentEl"
+          class="surface-card markdown-body share-content"
+          v-html="renderedContent"
+          @click="handleAnchorClick"
+        />
+      </div>
     </article>
   </div>
 </template>
 
 <script setup>
-import { marked } from 'marked'
-import hljs from 'highlight.js'
-import DOMPurify from 'dompurify'
-
 definePageMeta({ layout: false, middleware: [] })
 
 const route = useRoute()
 const api = useApi()
-
 const { render: renderMermaid } = useMermaid()
+const { renderDocHtml, extractToc, handleAnchorClick } = useMarkdown()
+
 const contentEl = ref(null)
 const doc = ref(null)
 const error = ref(false)
@@ -48,62 +102,33 @@ const needCode = ref(false)
 const authorized = ref(false)
 const codeInput = ref('')
 const codeError = ref(false)
+const showToc = ref(true)
+const linkCopied = ref(false)
 
-if (import.meta.client) {
-  marked.setOptions({
-    highlight: (code, lang) => {
-      if (lang && hljs.getLanguage(lang)) return hljs.highlight(code, { language: lang }).value
-      return hljs.highlightAuto(code).value
-    }
-  })
-}
-
-// Collapse blank lines inside <svg> blocks so marked doesn't break them into <p> tags
-function fixSvgBlocks(md) {
-  return md.replace(/<svg[\s\S]*?<\/svg>/gi, m => m.replace(/\n\s*\n/g, '\n'))
-}
-
-// GitHub-style heading slug so in-page anchor links (#section) work.
-function slugifyHeading(text) {
-  return String(text).trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-')
-}
-
-// Render markdown with id attributes on headings (marked v11 strips them by default).
-function mdToHtml(md) {
-  const renderer = new marked.Renderer()
-  const seen = Object.create(null)
-  renderer.heading = function (text, level, raw) {
-    let id = slugifyHeading(raw)
-    if (!id) return `<h${level}>${text}</h${level}>\n`
-    if (seen[id] !== undefined) { seen[id]++; id = `${id}-${seen[id]}` } else { seen[id] = 0 }
-    return `<h${level} id="${id}">${text}</h${level}>\n`
-  }
-  const origCode = renderer.code.bind(renderer)
-  renderer.code = function (code, infostring, escaped) {
-    const lang = (infostring || '').match(/^\S*/)?.[0] || ''
-    if (lang === 'mermaid') return `<pre class="mermaid">${code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>\n`
-    return origCode(code, infostring, escaped)
-  }
-  return marked(fixSvgBlocks(md), { renderer })
-}
-
-const renderedContent = computed(() => {
-  if (!doc.value) return ''
-  let html = doc.value.content_html || mdToHtml(doc.value.content_md || '')
-  // Rewrite relative image srcs to asset API (doc.id comes from backend response)
-  if (doc.value.id) {
-    html = html.replace(/(<img\s[^>]*src=")(?!https?:|data:|\/)(.*?)(")/g,
-      `$1/api/v1/documents/${doc.value.id}/assets/$2$3`)
-  }
-  return DOMPurify.sanitize(html)
-})
+const tocItems = computed(() => extractToc(doc.value?.content_md || ''))
+const renderedContent = computed(() => renderDocHtml(doc.value, doc.value?.id))
 
 watch(renderedContent, async () => {
   await nextTick()
   renderMermaid(contentEl.value)
 })
 
-function formatDate(date) { return date ? new Date(date).toLocaleDateString() : '' }
+function scrollToHeading(id) {
+  const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id
+  const target = document.querySelector(`[id="${escaped}"]`)
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+async function copyCurrentLink() {
+  if (!import.meta.client) return
+  await navigator.clipboard.writeText(window.location.href)
+  linkCopied.value = true
+  setTimeout(() => { linkCopied.value = false }, 2000)
+}
+
+function formatDate(date) {
+  return date ? new Date(date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : ''
+}
 
 async function loadDoc(code) {
   try {
@@ -117,7 +142,7 @@ async function loadDoc(code) {
       if (code) codeError.value = true
     } else {
       error.value = true
-      errorMessage.value = 'Document not found or share link expired'
+      errorMessage.value = 'Document not found or share link expired.'
     }
   }
 }
@@ -131,35 +156,171 @@ onMounted(() => loadDoc())
 </script>
 
 <style scoped>
-.share-page { max-width: none; margin: 0; padding: 1.5rem 2rem; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: var(--text); }
-.loading, .error { text-align: center; padding: 2rem; color: var(--text3); }
-.error { color: var(--danger); }
-.doc-header { margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }
-.doc-header h1 { margin-bottom: 0.5rem; color: var(--text); }
-.meta { display: flex; gap: 1rem; color: var(--text3); font-size: 0.9rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
-.tags { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
-.tag { background: var(--surface2); color: var(--text2); border: 1px solid var(--border2); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.85rem; }
-.shared-badge { display: inline-block; background: var(--warning); color: white; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.8rem; }
-.content { line-height: 1.8; color: var(--text); }
-.content :deep(h1), .content :deep(h2), .content :deep(h3) { margin: 1.5rem 0 0.5rem; color: var(--text); }
-.content :deep(p) { margin-bottom: 1rem; }
-.content :deep(pre) { background: var(--surface2); border: 1px solid var(--border); padding: 1rem; border-radius: 4px; overflow-x: auto; }
-.content :deep(pre) :deep(code) { color: var(--text); background: none; }
-.content :deep(code) { font-family: 'Fira Code', monospace; font-size: 0.9em; background: var(--surface2); padding: 0.1em 0.3em; border-radius: 3px; color: var(--text); }
-.content :deep(pre) > :deep(code) { background: none; padding: 0; }
-.content :deep(ul), .content :deep(ol) { margin-left: 1.5rem; margin-bottom: 1rem; }
-.content :deep(blockquote) { border-left: 4px solid var(--accent); padding-left: 1rem; margin: 1rem 0; color: var(--text2); }
-.content :deep(a) { color: var(--accent); }
-.content :deep(table) { border-collapse: collapse; width: 100%; margin-bottom: 1rem; }
-.content :deep(th), .content :deep(td) { border: 1px solid var(--border2); padding: 0.4rem 0.6rem; }
-.content :deep(th) { background: var(--surface2); }
-.content :deep(img) { max-width: 100%; border-radius: 4px; }
-.code-prompt { text-align: center; padding: 3rem 1rem; }
-.code-prompt h2 { margin-bottom: 0.5rem; color: var(--text); }
-.code-prompt p { color: var(--text3); margin-bottom: 1rem; }
-.code-form { display: flex; gap: 0.5rem; justify-content: center; }
-.code-form input { padding: 0.5rem 0.75rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 1rem; width: 200px; background: var(--surface2); color: var(--text); }
-.code-form button { padding: 0.5rem 1rem; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; }
-.code-form button:hover { background: var(--accent-hover); }
-.error-msg { color: var(--danger); margin-top: 0.5rem; }
+.share-page {
+  width: 100%;
+}
+
+.share-status {
+  text-align: center;
+  padding: 56px 24px;
+  color: var(--muted);
+}
+
+.share-status--error {
+  color: var(--danger);
+}
+
+.code-prompt {
+  max-width: 440px;
+  margin: 48px auto;
+  text-align: center;
+  padding: 36px 28px;
+}
+
+.code-lock-badge {
+  display: inline-grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  margin-bottom: 16px;
+}
+
+.code-prompt h2 {
+  margin-bottom: 8px;
+  font-size: 22px;
+  font-weight: 750;
+}
+
+.code-prompt p {
+  color: var(--muted);
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
+.code-form {
+  display: flex;
+  gap: 8px;
+}
+
+.error-msg {
+  color: var(--danger) !important;
+  margin-top: 12px;
+  margin-bottom: 0 !important;
+  font-weight: 600;
+}
+
+.share-article {
+  display: grid;
+  gap: 18px;
+}
+
+.share-hero-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.share-badges,
+.share-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.share-title {
+  margin: 0 0 8px;
+  font-size: clamp(26px, 2.8vw, 38px);
+  font-weight: 750;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
+}
+
+.share-desc {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.share-byline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.share-reader-grid--toc {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.share-toc {
+  position: sticky;
+  top: 84px;
+  padding: 16px;
+  max-height: calc(100vh - 110px);
+  overflow-y: auto;
+}
+
+.share-toc-title {
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.share-toc nav {
+  display: grid;
+  gap: 5px;
+}
+
+.share-toc-link {
+  display: block;
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+  text-decoration: none;
+  line-height: 1.4;
+  padding: 3px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-toc-link:hover {
+  color: var(--accent);
+}
+
+.share-toc-level-2 {
+  padding-left: 12px;
+}
+
+.share-toc-level-3 {
+  padding-left: 24px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.share-content {
+  padding: clamp(24px, 3.5vw, 44px);
+}
+
+@media (max-width: 860px) {
+  .share-reader-grid--toc {
+    grid-template-columns: 1fr;
+  }
+  .share-toc {
+    position: static;
+  }
+}
 </style>

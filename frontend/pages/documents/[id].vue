@@ -1,119 +1,272 @@
 <template>
   <div class="doc-page">
-    <div v-if="pending" class="loading">Loading...</div>
-    <div v-else-if="error || !doc" class="error">Document not found</div>
-    <article v-else class="document">
-      <header class="doc-header">
-        <h1>{{ doc.title }}</h1>
-        <div class="meta">
-          <span>Category: <NuxtLink :to="`/categories/${doc.category}`">{{ doc.category }}</NuxtLink></span>
-          <span>By {{ doc.created_by }}</span>
-          <span>Updated: {{ formatDate(doc.updated_at) }}</span>
-          <span v-if="doc.latest_version" class="version">v{{ doc.latest_version }}</span>
+    <!-- Workspace Topline -->
+    <div class="workspace-topline">
+      <div class="workspace-topline-crumbs">
+        <NuxtLink to="/" class="workspace-topline-crumb">Documents</NuxtLink>
+        <template v-if="doc?.category">
+          <span>/</span>
+          <NuxtLink :to="`/categories/${doc.category}`" class="workspace-topline-crumb">{{ doc.category }}</NuxtLink>
+        </template>
+        <template v-if="doc?.title">
+          <span>/</span>
+          <span class="workspace-topline-crumb current">{{ doc.title }}</span>
+        </template>
+      </div>
+      <div class="workspace-topline-actions">
+        <NuxtLink to="/" class="workspace-topline-link">
+          <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-arrow-left"/></svg>
+          <span>Back to Documents</span>
+        </NuxtLink>
+      </div>
+    </div>
+
+    <div v-if="pending" class="surface-card doc-status">Loading document…</div>
+    <div v-else-if="error || !doc" class="surface-card doc-status">Document not found.</div>
+
+    <article v-else class="doc-shell">
+      <header class="doc-hero surface-card">
+        <div class="doc-hero-top">
+          <div class="doc-badges">
+            <NuxtLink v-if="doc.category" :to="`/categories/${doc.category}`" class="pill pill-accent">
+              {{ doc.category }}
+            </NuxtLink>
+            <NuxtLink v-for="tag in doc.tags" :key="tag" :to="`/tags/${tag}`" class="pill">
+              #{{ tag }}
+            </NuxtLink>
+            <span v-if="doc.latest_version" class="pill pill-accent">v{{ doc.latest_version }}</span>
+            <span v-if="doc.token_count_estimate" class="pill">~{{ doc.token_count_estimate }} tokens</span>
+          </div>
+
+          <div class="doc-toolbar">
+            <button
+              v-if="tocItems.length && !editing"
+              type="button"
+              class="btn btn-sm"
+              :class="{ 'btn-soft': showToc }"
+              @click="showToc = !showToc"
+            >
+              <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-toc"/></svg>
+              <span>Outline</span>
+            </button>
+            <template v-if="auth.user">
+              <button
+                type="button"
+                class="btn btn-sm"
+                :class="{ 'btn-primary': editing }"
+                @click="editing = !editing"
+              >
+                <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-edit"/></svg>
+                <span>{{ editing ? 'Close Editor' : 'Edit' }}</span>
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm"
+                :class="{ 'btn-soft': showVersions }"
+                @click="showVersions = !showVersions"
+              >
+                <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-history"/></svg>
+                <span>History</span>
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm"
+                :class="{ 'btn-soft': showSharePanel }"
+                @click="showSharePanel = !showSharePanel"
+              >
+                <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-share"/></svg>
+                <span>Share</span>
+              </button>
+              <button type="button" class="btn btn-sm" @click="downloadDoc">
+                <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-download"/></svg>
+                <span>Download</span>
+              </button>
+              <button type="button" class="btn btn-sm btn-danger" @click="deleteDoc">
+                <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-trash"/></svg>
+                <span>Delete</span>
+              </button>
+            </template>
+          </div>
         </div>
-        <div v-if="doc.tags?.length" class="tags">
-          <span v-for="tag in doc.tags" :key="tag" class="tag">
-            <NuxtLink :to="`/tags/${tag}`">{{ tag }}</NuxtLink>
-          </span>
-        </div>
-        <div v-if="auth.user" class="actions">
-          <button @click="editing = !editing">{{ editing ? 'Cancel' : 'Edit' }}</button>
-          <button @click="showVersions = !showVersions">{{ showVersions ? 'Hide History' : 'Version History' }}</button>
-          <button @click="downloadDoc" class="download">Download</button>
-          <button @click="showSharePanel = !showSharePanel" class="share">Share</button>
-          <button @click="deleteDoc" class="delete">Delete</button>
+
+        <h1 class="doc-title">{{ doc.title }}</h1>
+        <p v-if="doc.description" class="doc-description">{{ doc.description }}</p>
+
+        <div class="doc-byline">
+          <span>Authored by <strong>{{ doc.created_by || 'system' }}</strong></span>
+          <span>·</span>
+          <span>Updated {{ formatDate(doc.updated_at) }}</span>
         </div>
       </header>
 
-      <div v-if="showVersions" class="versions-panel">
-        <h3>Version History</h3>
+      <!-- Version History Panel -->
+      <section v-if="showVersions" class="surface-card sub-panel">
+        <div class="sub-panel-head">
+          <h3>Version History</h3>
+          <button type="button" class="btn btn-xs btn-ghost" @click="showVersions = false">Close</button>
+        </div>
         <div v-if="versions?.length" class="version-list">
           <div v-for="v in versions" :key="v.version_number" class="version-item">
-            <span class="ver-num">v{{ v.version_number }}</span>
-            <span class="ver-note">{{ v.change_note || 'No note' }}</span>
+            <span class="pill pill-accent">v{{ v.version_number }}</span>
+            <span class="ver-note">{{ v.change_note || 'No change note' }}</span>
             <span class="ver-date">{{ formatDate(v.created_at) }}</span>
-            <button v-if="v.version_number !== doc.latest_version" @click="rollback(v.version_number)" class="rollback-btn">Rollback</button>
+            <button
+              v-if="v.version_number !== doc.latest_version"
+              type="button"
+              class="btn btn-xs"
+              @click="rollback(v.version_number)"
+            >
+              Rollback
+            </button>
           </div>
         </div>
-        <p v-else class="no-versions">No version history yet.</p>
-      </div>
+        <p v-else class="dimmed">No version history yet.</p>
+      </section>
 
-      <div v-if="showSharePanel" class="share-panel">
-        <h3>Share Document</h3>
+      <!-- Share Panel -->
+      <section v-if="showSharePanel" class="surface-card sub-panel">
+        <div class="sub-panel-head">
+          <h3>Share Document</h3>
+          <button type="button" class="btn btn-xs btn-ghost" @click="showSharePanel = false">Close</button>
+        </div>
         <div class="share-create">
-          <input v-model="shareSlug" placeholder="Custom URL (optional, e.g. release-notes)" class="share-code-input" style="min-width:240px;" />
+          <input
+            v-model="shareSlug"
+            placeholder="Custom URL slug (optional, e.g. release-notes)"
+            class="input-control share-slug-input"
+          />
           <label class="share-label">
-            <input type="checkbox" v-model="shareWithCode" /> Require access code
+            <input v-model="shareWithCode" type="checkbox" />
+            <span>Require access code</span>
           </label>
-          <input v-if="shareWithCode" v-model="shareCode" placeholder="Enter access code" class="share-code-input" />
-          <button @click="createNewShare" class="btn-create-share">Create Share Link</button>
+          <input
+            v-if="shareWithCode"
+            v-model="shareCode"
+            placeholder="Enter access code"
+            class="input-control share-code-input"
+          />
+          <button type="button" class="btn btn-sm btn-primary" @click="createNewShare">Create Share Link</button>
         </div>
         <p v-if="slugCheck.message" class="slug-status" :class="slugCheck.ok ? 'slug-ok' : 'slug-bad'">
           {{ slugCheck.message }}
-          <button v-if="slugCheck.suggestion" type="button" class="suggest-btn" @click="shareSlug = slugCheck.suggestion">
+          <button
+            v-if="slugCheck.suggestion"
+            type="button"
+            class="btn btn-xs btn-soft"
+            @click="shareSlug = slugCheck.suggestion"
+          >
             Use “{{ slugCheck.suggestion }}”
           </button>
         </p>
         <p v-if="shareError" class="share-error">{{ shareError }}</p>
         <div v-if="newShareUrl" class="share-result">
-          <p>Share URL:</p>
           <div class="share-url-row">
-            <input :value="newShareUrl" readonly class="share-url-input" @click="$event.target.select()" />
-            <button @click="copyShareUrl" class="btn-copy">{{ copied ? '✓' : 'Copy' }}</button>
+            <input :value="newShareUrl" readonly class="input-control" @click="$event.target.select()" />
+            <button type="button" class="btn btn-sm btn-primary" @click="copyShareUrl">
+              {{ copied ? '✓ Copied' : 'Copy Link' }}
+            </button>
           </div>
-          <p v-if="newShareHasCode" class="share-note">🔒 Access code required to view</p>
+          <p v-if="newShareHasCode" class="dimmed" style="margin-top:6px;">Access code required to view</p>
         </div>
         <div v-if="shares.length" class="share-list">
-          <h4>Active share links</h4>
+          <h4>Active Share Links</h4>
           <div v-for="s in shares" :key="s.id" class="share-item">
-            <span class="share-token">{{ s.has_access_code ? '🔒' : '🔗' }} /share/{{ s.slug || (s.token.slice(0, 8) + '…') }}</span>
-            <span class="share-date">{{ formatDate(s.created_at) }}</span>
-            <button @click="renameShare(s)" class="btn-sm">{{ s.slug ? 'Rename' : 'Slug' }}</button>
-            <button @click="revokeShare(s.id)" class="btn-sm btn-danger">Revoke</button>
+            <span class="pill" :class="s.has_access_code ? 'pill-warning' : 'pill-success'">
+              {{ s.has_access_code ? 'Code' : 'Public' }}
+            </span>
+            <span class="share-token">/share/{{ s.slug || (s.token.slice(0, 10) + '…') }}</span>
+            <span class="dimmed">{{ formatDate(s.created_at) }}</span>
+            <button type="button" class="btn btn-xs" @click="renameShare(s)">
+              {{ s.slug ? 'Rename' : 'Add Alias' }}
+            </button>
+            <button type="button" class="btn btn-xs btn-danger" @click="revokeShare(s.id)">Revoke</button>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div v-if="editing" class="editor">
-        <input v-model="editForm.title" placeholder="Title" />
-        <input v-model="editForm.description" placeholder="Description" />
-        <input v-model="editForm.category" placeholder="Category" />
-        <input v-model="editForm.tagsInput" placeholder="Tags (comma separated)" />
-        <div class="editor-mode-toggle">
-          <button :class="{ active: editorMode === 'source' }" @click="editorMode = 'source'">Source</button>
-          <button :class="{ active: editorMode === 'preview' }" @click="editorMode = 'preview'">Preview</button>
+      <!-- Editor -->
+      <section v-if="editing" class="surface-card editor-card">
+        <div class="editor-meta-grid">
+          <input v-model="editForm.title" class="input-control" placeholder="Title" />
+          <input v-model="editForm.category" class="input-control" placeholder="Category" />
+          <input v-model="editForm.description" class="input-control" placeholder="Description" />
+          <input v-model="editForm.tagsInput" class="input-control" placeholder="Tags (comma separated)" />
         </div>
-        <textarea v-if="editorMode === 'source'" v-model="editForm.content_md" rows="20" class="source-textarea" />
-        <div v-else class="editor-preview content" v-html="editPreviewHtml" />
+        <div class="editor-mode-bar">
+          <div class="editor-mode-toggle">
+            <button type="button" :class="{ active: editorMode === 'source' }" @click="editorMode = 'source'">Markdown</button>
+            <button type="button" :class="{ active: editorMode === 'split' }" @click="editorMode = 'split'">Split View</button>
+            <button type="button" :class="{ active: editorMode === 'preview' }" @click="editorMode = 'preview'">Preview</button>
+          </div>
+        </div>
+        <div class="editor-panes" :class="{ 'editor-panes--split': editorMode === 'split' }">
+          <textarea
+            v-if="editorMode === 'source' || editorMode === 'split'"
+            v-model="editForm.content_md"
+            rows="22"
+            class="textarea-control source-textarea"
+          />
+          <div
+            v-if="editorMode === 'preview' || editorMode === 'split'"
+            ref="previewEl"
+            class="markdown-body editor-preview"
+            v-html="editPreviewHtml"
+            @click="handleAnchorClick"
+          />
+        </div>
         <div class="editor-actions">
-          <input v-model="editForm.change_note" placeholder="Change note (optional)" />
-          <button @click="saveEdit">Save</button>
+          <input v-model="editForm.change_note" class="input-control" placeholder="Version change note (optional)" />
+          <button type="button" class="btn" @click="editing = false">Cancel</button>
+          <button type="button" class="btn btn-primary" @click="saveEdit">Save Changes</button>
         </div>
+      </section>
+
+      <!-- Rendered Content + TOC Sidebar -->
+      <div v-else class="reader-grid" :class="{ 'reader-grid--toc': showToc && tocItems.length }">
+        <aside v-if="showToc && tocItems.length" class="surface-card reader-toc">
+          <p class="reader-toc-title">On this page</p>
+          <nav>
+            <a
+              v-for="item in tocItems"
+              :key="item.id"
+              :href="`#${item.id}`"
+              :class="`reader-toc-link reader-toc-level-${item.level}`"
+              @click.prevent="scrollToHeading(item.id)"
+            >
+              {{ item.text }}
+            </a>
+          </nav>
+        </aside>
+
+        <div
+          ref="contentEl"
+          class="surface-card markdown-body doc-content-card"
+          v-html="renderedContent"
+          @click="handleAnchorClick"
+        />
       </div>
-
-      <div v-else class="content" v-html="renderedContent" />
     </article>
-
-    <NuxtLink to="/" class="back">Back to documents</NuxtLink>
   </div>
 </template>
 
 <script setup>
-import { marked } from 'marked'
-import hljs from 'highlight.js'
-import DOMPurify from 'dompurify'
-
 const route = useRoute()
 const api = useApi()
 const auth = useAuth()
 const router = useRouter()
+const { render: renderMermaid } = useMermaid()
+const { renderDocHtml, extractToc, handleAnchorClick } = useMarkdown()
+
+const contentEl = ref(null)
+const previewEl = ref(null)
+const showToc = ref(true)
 
 const { data: doc, pending, error, refresh } = await useAsyncData(`doc-${route.params.id}`, () => api.getDocument(route.params.id))
 
 const editing = ref(false)
 const showVersions = ref(false)
 const showSharePanel = ref(false)
-const editorMode = ref('source')
+const editorMode = ref('split')
 const editForm = ref({ title: '', description: '', category: '', tagsInput: '', content_md: '', change_note: '' })
 const versions = ref([])
 const shares = ref([])
@@ -126,6 +279,12 @@ const newShareHasCode = ref(false)
 const copied = ref(false)
 const slugCheck = reactive({ ok: false, message: '', suggestion: '' })
 
+function scrollToHeading(id) {
+  const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id
+  const target = document.querySelector(`[id="${escaped}"]`)
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 function apiErrMessage(e) {
   return e?.data?.error?.message || e?.response?._data?.error?.message || e?.message || 'Request failed.'
 }
@@ -134,7 +293,6 @@ function apiErrSuggestion(e) {
 }
 function resetSlugCheck() { slugCheck.ok = false; slugCheck.message = ''; slugCheck.suggestion = '' }
 
-// Debounced live availability check for the custom slug while typing.
 let slugCheckTimer = null
 watch(shareSlug, (val) => {
   resetSlugCheck()
@@ -177,41 +335,22 @@ watch(showVersions, async (val) => {
   }
 })
 
-if (import.meta.client) {
-  marked.setOptions({
-    highlight: (code, lang) => {
-      if (lang && hljs.getLanguage(lang)) {
-        return hljs.highlight(code, { language: lang }).value
-      }
-      return hljs.highlightAuto(code).value
-    }
-  })
-}
+const tocItems = computed(() => extractToc(doc.value?.content_md || ''))
+const renderedContent = computed(() => renderDocHtml(doc.value, route.params.id))
+const editPreviewHtml = computed(() => renderDocHtml(editForm.value.content_md, route.params.id))
 
-// Collapse blank lines inside <svg> blocks so marked doesn't break them into <p> tags
-function fixSvgBlocks(md) {
-  return md.replace(/<svg[\s\S]*?<\/svg>/gi, m => m.replace(/\n\s*\n/g, '\n'))
-}
+watch(renderedContent, async () => {
+  await nextTick()
+  renderMermaid(contentEl.value)
+}, { immediate: true })
 
-const renderedContent = computed(() => {
-  if (!doc.value) return ''
-  let html = doc.value.content_html || marked(fixSvgBlocks(doc.value.content_md || ''))
-  // Rewrite relative image srcs to asset API
-  html = html.replace(/(<img\s[^>]*src=")(?!https?:|data:|\/)(.*?)(")/g,
-    `$1/api/v1/documents/${route.params.id}/assets/$2$3`)
-  return DOMPurify.sanitize(html)
-})
-
-const editPreviewHtml = computed(() => {
-  if (!editForm.value.content_md) return ''
-  let html = marked(fixSvgBlocks(editForm.value.content_md))
-  html = html.replace(/(<img\s[^>]*src=")(?!https?:|data:|\/)(.*?)(")/g,
-    `$1/api/v1/documents/${route.params.id}/assets/$2$3`)
-  return DOMPurify.sanitize(html)
+watch([editPreviewHtml, editorMode], async () => {
+  await nextTick()
+  renderMermaid(previewEl.value)
 })
 
 function formatDate(date) {
-  return date ? new Date(date).toLocaleDateString() : ''
+  return date ? new Date(date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : ''
 }
 
 async function saveEdit() {
@@ -281,7 +420,7 @@ async function renameShare(s) {
   const next = prompt(
     s.slug
       ? `Rename custom URL for this share.\nCurrent: ${s.slug}\nLeave blank to clear and fall back to the random token.`
-      : `Set a custom URL (slug). Letters, digits, dot, underscore, hyphen; max 64 chars.\nLeaving blank cancels.`,
+      : `Set a custom URL (slug). Letters, digits, underscore, hyphen; max 64 chars.\nLeaving blank cancels.`,
     s.slug || ''
   )
   if (next === null) return
@@ -313,84 +452,328 @@ watch(showSharePanel, (val) => { if (val) loadShares() })
 </script>
 
 <style scoped>
-.doc-page { max-width: 800px; }
-.loading, .error { text-align: center; padding: 2rem; }
-.doc-header { margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }
-.doc-header h1 { margin-bottom: 0.5rem; }
-.meta { display: flex; gap: 1rem; color: var(--text3); font-size: 0.9rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
-.meta a { color: var(--accent); }
-.version { background: var(--active-bg); color: var(--active-color); padding: 0.1rem 0.4rem; border-radius: 3px; }
-.tags { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
-.tag a { background: var(--tag-bg); color: white; padding: 0.25rem 0.5rem; border-radius: 4px; text-decoration: none; font-size: 0.85rem; }
-.tag a:hover { background: var(--accent); }
-.actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-.actions button { padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer; }
-.actions button:first-child { background: var(--accent); color: white; }
-.actions button:nth-child(2) { background: #8e44ad; color: white; }
-.actions .download { background: var(--success); color: white; }
-.actions .share { background: var(--warning); color: white; }
-.actions .delete { background: var(--danger); color: white; }
-.versions-panel { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; color: var(--text); }
-.versions-panel h3 { margin-bottom: 0.75rem; }
-.version-list { display: flex; flex-direction: column; gap: 0.5rem; }
-.version-item { display: flex; gap: 1rem; align-items: center; padding: 0.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; font-size: 0.9rem; }
-.ver-num { font-weight: bold; color: var(--accent); min-width: 2rem; }
-.ver-note { flex: 1; color: var(--text2); }
-.ver-date { color: var(--text3); white-space: nowrap; }
-.rollback-btn { padding: 0.2rem 0.6rem; background: var(--warning); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
-.no-versions { color: var(--text3); font-style: italic; }
-.editor { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 2rem; }
-.editor input, .editor textarea { padding: 0.5rem; border: 1px solid var(--border2); border-radius: 4px; background: var(--surface2); color: var(--text); }
-.editor input:focus, .editor textarea:focus, .share-code-input:focus, .share-url-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
-.editor-actions { display: flex; gap: 0.5rem; }
-.editor-actions input { flex: 1; }
-.editor-actions button { background: var(--success); color: white; padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer; }
-.editor-mode-toggle { display: flex; gap: 0; border: 1px solid var(--border2); border-radius: 4px; overflow: hidden; width: fit-content; }
-.editor-mode-toggle button { padding: 0.35rem 0.8rem; border: none; background: var(--surface2); cursor: pointer; font-size: 0.85rem; color: var(--text); }
-.editor-mode-toggle button.active { background: var(--accent); color: white; }
-.source-textarea { font-family: 'Fira Code', 'Consolas', monospace; font-size: 0.9rem; line-height: 1.5; tab-size: 2; }
-.editor-preview { min-height: 300px; border: 1px solid var(--border2); border-radius: 4px; padding: 1rem; background: var(--surface); overflow-y: auto; max-height: 500px; }
-.share-panel { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; }
-.share-panel h3 { margin-bottom: 0.75rem; }
-.share-panel h4 { margin: 0.75rem 0 0.5rem; font-size: 0.9rem; }
-.share-create { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
-.share-label { display: flex; align-items: center; gap: 0.3rem; font-size: 0.9rem; cursor: pointer; }
-.share-code-input { padding: 0.35rem 0.5rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.9rem; width: 160px; background: var(--surface); color: var(--text); }
-.btn-create-share { padding: 0.35rem 0.8rem; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
-.share-result { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem; margin-bottom: 0.75rem; }
-.share-result p { margin: 0 0 0.4rem; font-size: 0.85rem; }
-.share-url-row { display: flex; gap: 0.4rem; }
-.share-url-input { flex: 1; padding: 0.35rem 0.5rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.85rem; font-family: monospace; background: var(--surface2); color: var(--text); }
-.btn-copy { padding: 0.35rem 0.6rem; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; min-width: 50px; }
-.share-note { color: var(--text3); font-size: 0.82rem; margin-top: 0.3rem; }
-.share-error { color: var(--danger, #c0392b); font-size: 0.85rem; margin: 0 0 0.5rem 0; }
-.slug-status { font-size: 0.82rem; margin: 0 0 0.5rem 0; }
+.doc-page {
+  width: 100%;
+}
+
+.doc-status {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--muted);
+  margin-top: 20px;
+}
+
+.doc-shell {
+  display: grid;
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.doc-hero-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.doc-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.doc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.doc-title {
+  margin: 0 0 8px;
+  color: var(--ink);
+  font-size: clamp(24px, 2.5vw, 34px);
+  font-weight: 750;
+  letter-spacing: -0.035em;
+  line-height: 1.2;
+}
+
+.doc-description {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 14.5px;
+}
+
+.doc-byline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.sub-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.sub-panel-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.version-list {
+  display: grid;
+  gap: 8px;
+}
+
+.version-item {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-size: 13px;
+}
+
+.ver-note {
+  flex: 1;
+  color: var(--ink-secondary);
+}
+
+.ver-date,
+.dimmed {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.share-create {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.share-slug-input {
+  flex: 1 1 240px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.share-code-input {
+  width: 160px;
+}
+
+.share-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.slug-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  margin-bottom: 8px;
+}
 .slug-ok { color: var(--success); }
 .slug-bad { color: var(--danger); }
-.suggest-btn { margin-left: 0.4rem; padding: 0.1rem 0.45rem; font-size: 0.75rem; background: var(--surface2); color: var(--accent); border: 1px solid var(--border2); border-radius: 4px; cursor: pointer; }
-.suggest-btn:hover { border-color: var(--accent); }
-.share-list { border-top: 1px solid var(--border); padding-top: 0.5rem; }
-.share-item { display: flex; gap: 0.75rem; align-items: center; padding: 0.4rem 0; font-size: 0.85rem; }
-.share-token { flex: 1; font-family: monospace; color: var(--text2); }
-.share-date { color: var(--text3); font-size: 0.8rem; }
-.content { line-height: 1.8; }
-.content :deep(h1), .content :deep(h2), .content :deep(h3) { margin: 1.5rem 0 0.5rem; }
-.content :deep(p) { margin-bottom: 1rem; }
-.content :deep(pre) { background: var(--surface2); padding: 1rem; border-radius: 4px; overflow-x: auto; }
-.content :deep(code) { font-family: 'Fira Code', monospace; }
-.content :deep(ul), .content :deep(ol) { margin-left: 1.5rem; margin-bottom: 1rem; }
-.content :deep(blockquote) { border-left: 4px solid var(--accent); padding-left: 1rem; margin: 1rem 0; color: var(--text2); }
-.back { display: inline-block; margin-top: 2rem; color: var(--accent); }
 
-/* ── Mobile ─────────────────────────────────────────────────────────────── */
-@media (max-width: 768px) {
-  .doc-page { max-width: 100%; }
-  .actions { flex-wrap: wrap; }
-  .actions button { flex: 1 1 auto; font-size: 0.9rem; padding: 0.5rem 0.75rem; }
-  .version-item { flex-wrap: wrap; gap: 0.5rem; }
-  .editor-actions { flex-direction: column; }
-  .editor-actions input { width: 100%; }
-  .content :deep(pre) { font-size: 0.8rem; }
-  .content :deep(table) { display: block; overflow-x: auto; }
+.share-error {
+  color: var(--danger);
+  font-size: 12.5px;
+  margin-bottom: 8px;
+}
+
+.share-result {
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.share-url-row {
+  display: flex;
+  gap: 8px;
+}
+
+.share-list {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.share-list h4 {
+  font-size: 12.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.share-item {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.share-token {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+}
+
+/* ── Editor ────────────────────────────────────────────────────────────── */
+.editor-card {
+  display: grid;
+  gap: 12px;
+}
+
+.editor-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.editor-mode-toggle {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--raised);
+}
+
+.editor-mode-toggle button {
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.editor-mode-toggle button.active {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+
+.editor-panes--split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.source-textarea {
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13.5px;
+  line-height: 1.6;
+  min-height: 440px;
+}
+
+.editor-preview {
+  min-height: 440px;
+  max-height: 680px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px;
+  background: var(--canvas);
+}
+
+.editor-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.editor-actions .input-control {
+  flex: 1;
+}
+
+/* ── Reader + TOC Grid ─────────────────────────────────────────────────── */
+.reader-grid--toc {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.reader-toc {
+  position: sticky;
+  top: 20px;
+  padding: 16px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.reader-toc-title {
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.reader-toc nav {
+  display: grid;
+  gap: 5px;
+}
+
+.reader-toc-link {
+  display: block;
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+  text-decoration: none;
+  line-height: 1.4;
+  padding: 3px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-toc-link:hover {
+  color: var(--accent);
+}
+
+.reader-toc-level-2 {
+  padding-left: 12px;
+}
+
+.reader-toc-level-3 {
+  padding-left: 24px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.doc-content-card {
+  padding: clamp(22px, 3vw, 40px);
+}
+
+@media (max-width: 900px) {
+  .reader-grid--toc,
+  .editor-panes--split,
+  .editor-meta-grid {
+    grid-template-columns: 1fr;
+  }
+  .reader-toc {
+    position: static;
+  }
 }
 </style>

@@ -1,96 +1,127 @@
 <template>
   <div>
-    <h1>Share Links</h1>
-    <p class="hint">
-      Manage every share link you've created. Give a link a friendly custom URL
-      (alias) so it's easy to remember — if the alias is already taken we'll
-      suggest an available one.
-      <span v-if="auth.isAdmin"> As an admin you can see and manage every user's links.</span>
-    </p>
-
-    <div class="section-header">
-      <h2>Active links <span v-if="!loading" class="count">({{ shares.length }})</span></h2>
-      <button class="btn-secondary" @click="load" :disabled="loading">Refresh</button>
+    <div class="workspace-topline">
+      <span>EXTERNAL SHARING</span>
+      <button type="button" class="workspace-topline-link" :disabled="loading" @click="load">
+        <span>Refresh List</span>
+      </button>
     </div>
 
-    <div v-if="loading" class="loading">Loading...</div>
+    <header class="page-header">
+      <div class="page-header-copy">
+        <p class="page-eyebrow">PUBLIC &amp; PROTECTED LINKS</p>
+        <h1 class="page-title">Shared Links</h1>
+        <p class="page-subtitle">
+          Manage every share link you've created and assign custom friendly URLs.
+          <span v-if="auth.isAdmin"> As an administrator, you can view and manage all users' links.</span>
+        </p>
+      </div>
+      <div class="catalog-total">
+        <strong>{{ filteredShares.length }}</strong>
+        <span>{{ filteredShares.length === 1 ? 'active link' : 'active links' }}</span>
+      </div>
+    </header>
 
-    <p v-else-if="!shares.length" class="hint">
-      No share links yet. Open a document and click <strong>Share</strong> to create one.
-    </p>
+    <div class="workspace-bar">
+      <div class="workspace-bar-search">
+        <svg class="ui-icon search-leading-icon" aria-hidden="true"><use href="#ui-search"/></svg>
+        <input v-model="filterText" type="search" placeholder="Filter by document title, slug, or owner…" />
+      </div>
+      <button type="button" class="btn btn-sm" :disabled="loading" @click="load">Refresh</button>
+    </div>
 
-    <table v-else class="table">
-      <thead>
-        <tr>
-          <th>Document</th>
-          <th>Link / Alias</th>
-          <th>Access</th>
-          <th v-if="auth.isAdmin">Owner</th>
-          <th>Created</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="s in shares" :key="s.id">
-          <td>
-            <NuxtLink v-if="!s.document_deleted" :to="`/documents/${s.document_id}`" class="doc-link">
-              {{ s.document_title || '(untitled)' }}
-            </NuxtLink>
-            <span v-else class="deleted">{{ s.document_title || '(untitled)' }} — deleted</span>
-          </td>
+    <div v-if="loading" class="surface-card loading">Loading share links…</div>
 
-          <td>
-            <!-- View mode -->
-            <div v-if="editingId !== s.id" class="link-cell">
-              <span class="link-icon">{{ s.has_access_code ? '🔒' : '🔗' }}</span>
-              <input :value="shareUrl(s)" readonly class="link-url" @click="$event.target.select()" />
-              <button class="btn-sm" @click="copy(s)">{{ copiedId === s.id ? '✓' : 'Copy' }}</button>
-              <span v-if="!s.slug" class="badge-token">random token</span>
-            </div>
+    <div v-else-if="!filteredShares.length" class="catalog-empty">
+      <svg class="ui-icon" aria-hidden="true"><use href="#ui-share"/></svg>
+      <strong>No share links found</strong>
+      <span>Open any document and click <strong>Share</strong> to create a public or password-protected link.</span>
+    </div>
 
-            <!-- Edit mode -->
-            <div v-else class="alias-edit">
-              <div class="alias-row">
-                <span class="alias-prefix">/share/</span>
-                <input
-                  v-model="editSlug"
-                  class="alias-input"
-                  :class="aliasInputClass"
-                  placeholder="custom-url (blank = random token)"
-                  @keyup.enter="saveAlias(s)"
-                  @keyup.esc="cancelEdit"
-                />
-                <button class="btn-sm btn-accent" @click="saveAlias(s)" :disabled="saving">Save</button>
-                <button class="btn-sm" @click="cancelEdit">Cancel</button>
-              </div>
-              <p v-if="checkState.checking" class="alias-status checking">Checking…</p>
-              <p v-else-if="checkState.message" class="alias-status" :class="checkState.ok ? 'ok' : 'bad'">
-                {{ checkState.message }}
-                <button
-                  v-if="checkState.suggestion"
-                  type="button"
-                  class="suggest-btn"
-                  @click="editSlug = checkState.suggestion"
-                >
-                  Use “{{ checkState.suggestion }}”
+    <div v-else class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Document</th>
+            <th>Share URL / Custom Alias</th>
+            <th>Access</th>
+            <th v-if="auth.isAdmin">Owner</th>
+            <th>Created</th>
+            <th style="text-align:right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="s in filteredShares" :key="s.id">
+            <td>
+              <NuxtLink v-if="!s.document_deleted" :to="`/documents/${s.document_id}`" class="doc-link">
+                {{ s.document_title || '(untitled)' }}
+              </NuxtLink>
+              <span v-else class="deleted">{{ s.document_title || '(untitled)' }} — deleted</span>
+            </td>
+
+            <td>
+              <!-- View mode -->
+              <div v-if="editingId !== s.id" class="link-cell">
+                <input :value="shareUrl(s)" readonly class="input-control link-url" @click="$event.target.select()" />
+                <button type="button" class="btn btn-xs" @click="copy(s)">
+                  {{ copiedId === s.id ? '✓ Copied' : 'Copy' }}
                 </button>
-              </p>
-              <p v-if="editError" class="alias-status bad">{{ editError }}</p>
-            </div>
-          </td>
+                <a :href="shareUrl(s)" target="_blank" rel="noopener" class="btn btn-xs" title="Open share link">
+                  <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-external"/></svg>
+                </a>
+                <span v-if="s.slug" class="pill pill-accent">alias</span>
+              </div>
 
-          <td>{{ s.has_access_code ? 'Code required' : 'Public' }}</td>
-          <td v-if="auth.isAdmin">{{ s.created_by }}</td>
-          <td>{{ formatDate(s.created_at) }}</td>
-          <td class="actions-cell">
-            <button v-if="editingId !== s.id" class="btn-sm" @click="startEdit(s)">
-              {{ s.slug ? 'Edit alias' : 'Add alias' }}
-            </button>
-            <button class="btn-sm btn-danger" @click="revoke(s)">Revoke</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+              <!-- Edit mode -->
+              <div v-else class="alias-edit">
+                <div class="alias-row">
+                  <span class="alias-prefix">/share/</span>
+                  <input
+                    v-model="editSlug"
+                    class="input-control alias-input"
+                    :class="aliasInputClass"
+                    placeholder="custom-url (blank = random token)"
+                    @keyup.enter="saveAlias(s)"
+                    @keyup.esc="cancelEdit"
+                  />
+                  <button type="button" class="btn btn-xs btn-primary" :disabled="saving" @click="saveAlias(s)">Save</button>
+                  <button type="button" class="btn btn-xs" @click="cancelEdit">Cancel</button>
+                </div>
+                <p v-if="checkState.checking" class="alias-status checking">Checking availability…</p>
+                <p v-else-if="checkState.message" class="alias-status" :class="checkState.ok ? 'ok' : 'bad'">
+                  {{ checkState.message }}
+                  <button
+                    v-if="checkState.suggestion"
+                    type="button"
+                    class="btn btn-xs btn-soft"
+                    @click="editSlug = checkState.suggestion"
+                  >
+                    Use “{{ checkState.suggestion }}”
+                  </button>
+                </p>
+                <p v-if="editError" class="alias-status bad">{{ editError }}</p>
+              </div>
+            </td>
+
+            <td>
+              <span class="pill" :class="s.has_access_code ? 'pill-warning' : 'pill-success'">
+                {{ s.has_access_code ? 'Code required' : 'Public' }}
+              </span>
+            </td>
+            <td v-if="auth.isAdmin">{{ s.created_by }}</td>
+            <td class="td-date">{{ formatDate(s.created_at) }}</td>
+            <td class="actions-cell">
+              <div style="display:flex; gap:6px; justify-content:flex-end;">
+                <button v-if="editingId !== s.id" type="button" class="btn btn-xs" @click="startEdit(s)">
+                  {{ s.slug ? 'Edit Alias' : 'Add Alias' }}
+                </button>
+                <button type="button" class="btn btn-xs btn-danger" @click="revoke(s)">Revoke</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>
 
@@ -101,6 +132,7 @@ const auth = useAuth()
 const shares = ref([])
 const loading = ref(true)
 const copiedId = ref(null)
+const filterText = ref('')
 
 const editingId = ref(null)
 const editSlug = ref('')
@@ -110,12 +142,23 @@ const checkState = reactive({ checking: false, ok: false, message: '', suggestio
 
 const origin = ref('')
 
+const filteredShares = computed(() => {
+  const q = filterText.value.trim().toLowerCase()
+  if (!q) return shares.value
+  return shares.value.filter(s =>
+    (s.document_title || '').toLowerCase().includes(q) ||
+    (s.slug || '').toLowerCase().includes(q) ||
+    (s.token || '').toLowerCase().includes(q) ||
+    (s.created_by || '').toLowerCase().includes(q)
+  )
+})
+
 function shareUrl(s) {
   return `${origin.value}/share/${s.slug || s.token}`
 }
 
 function formatDate(iso) {
-  return iso ? new Date(iso).toLocaleString() : ''
+  return iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : ''
 }
 
 function apiErrMessage(e) {
@@ -175,13 +218,12 @@ const aliasInputClass = computed(() => {
   return ''
 })
 
-// Debounced live availability check against the current row's original slug.
 let checkTimer = null
 watch(editSlug, (val) => {
   resetCheck()
   if (checkTimer) clearTimeout(checkTimer)
   const slug = val.trim()
-  if (!slug) return // blank = fall back to random token, nothing to check
+  if (!slug) return
   const current = shares.value.find(s => s.id === editingId.value)
   if (current && slug === current.slug) {
     checkState.ok = true
@@ -192,12 +234,11 @@ watch(editSlug, (val) => {
   checkTimer = setTimeout(async () => {
     try {
       const res = await api.checkShareSlug(slug)
-      // Guard against a stale response after the user kept typing
       if (slug !== editSlug.value.trim()) return
       checkState.checking = false
       if (res.available) {
         checkState.ok = true
-        checkState.message = 'Available'
+        checkState.message = '✓ Available'
         checkState.suggestion = ''
       } else {
         checkState.ok = false
@@ -252,49 +293,94 @@ onMounted(() => {
 </script>
 
 <style scoped>
-h1 { margin-bottom: 0.5rem; }
-.hint { color: var(--text2); font-size: 0.9rem; margin-bottom: 1.5rem; }
-.section-header { display: flex; justify-content: space-between; align-items: center; margin: 1rem 0; }
-.section-header h2 { margin: 0; }
-.count { color: var(--text3); font-weight: 400; font-size: 0.9rem; }
-.loading { padding: 2rem; color: var(--text3); text-align: center; }
+.loading {
+  padding: 48px 24px;
+  color: var(--muted);
+  text-align: center;
+}
 
-.table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 2px 4px var(--shadow); overflow: hidden; color: var(--text); }
-.table th { background: var(--surface2); text-align: left; padding: 0.6rem 0.85rem; font-weight: 600; color: var(--text); font-size: 0.85rem; }
-.table td { padding: 0.6rem 0.85rem; border-top: 1px solid var(--border); color: var(--text); vertical-align: middle; font-size: 0.88rem; }
+.doc-link {
+  color: var(--ink);
+  font-weight: 650;
+  text-decoration: none;
+}
 
-.doc-link { color: var(--accent); text-decoration: none; }
-.doc-link:hover { text-decoration: underline; }
-.deleted { color: var(--text3); font-style: italic; }
+.doc-link:hover {
+  color: var(--accent);
+}
 
-.link-cell { display: flex; gap: 0.4rem; align-items: center; }
-.link-icon { flex-shrink: 0; }
-.link-url { flex: 1; min-width: 160px; padding: 0.25rem 0.4rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.78rem; font-family: monospace; background: var(--surface2); color: var(--text); cursor: text; }
-.badge-token { font-size: 0.7rem; color: var(--text3); white-space: nowrap; }
+.deleted {
+  color: var(--muted);
+  font-style: italic;
+}
 
-.alias-edit { display: flex; flex-direction: column; gap: 0.3rem; }
-.alias-row { display: flex; gap: 0.3rem; align-items: center; }
-.alias-prefix { font-family: monospace; font-size: 0.8rem; color: var(--text3); }
-.alias-input { flex: 1; min-width: 160px; padding: 0.28rem 0.45rem; border: 1px solid var(--border2); border-radius: 4px; font-size: 0.82rem; font-family: monospace; background: var(--surface); color: var(--text); }
-.alias-input.input-ok { border-color: var(--success); }
-.alias-input.input-bad { border-color: var(--danger); }
-.alias-status { font-size: 0.78rem; margin: 0; }
-.alias-status.checking { color: var(--text3); }
+.link-cell {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.link-url {
+  flex: 1;
+  min-width: 220px;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.alias-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.alias-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.alias-prefix {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.alias-input {
+  flex: 1;
+  min-width: 170px;
+  padding: 5px 9px;
+  font-size: 12.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.alias-input.input-ok {
+  border-color: var(--success);
+}
+
+.alias-input.input-bad {
+  border-color: var(--danger);
+}
+
+.alias-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin: 0;
+}
+
+.alias-status.checking { color: var(--muted); }
 .alias-status.ok { color: var(--success); }
 .alias-status.bad { color: var(--danger); }
-.suggest-btn { margin-left: 0.4rem; padding: 0.1rem 0.45rem; font-size: 0.75rem; background: var(--surface2); color: var(--accent); border: 1px solid var(--border2); border-radius: 4px; cursor: pointer; }
-.suggest-btn:hover { border-color: var(--accent); }
 
-.actions-cell { white-space: nowrap; }
-.btn-sm { padding: 0.25rem 0.6rem; background: var(--surface2); color: var(--text); border: 1px solid var(--border2); border-radius: 4px; cursor: pointer; font-size: 0.78rem; margin-left: 0.3rem; }
-.btn-sm:first-child { margin-left: 0; }
-.btn-sm:hover { border-color: var(--accent); }
-.btn-sm:disabled { opacity: 0.6; cursor: not-allowed; }
-.btn-accent { background: var(--accent); color: #fff; border-color: var(--accent); }
-.btn-accent:hover { background: var(--accent-hover); }
-.btn-danger { background: var(--danger); color: #fff; border-color: var(--danger); }
-.btn-danger:hover { opacity: 0.9; }
-.btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border2); border-radius: 4px; padding: 0.4rem 0.9rem; cursor: pointer; font-size: 0.85rem; }
-.btn-secondary:hover { border-color: var(--accent); }
-.btn-secondary:disabled { opacity: 0.6; cursor: not-allowed; }
+.td-date {
+  color: var(--muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.actions-cell {
+  white-space: nowrap;
+}
 </style>

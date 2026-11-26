@@ -1,32 +1,62 @@
 <template>
   <Teleport to="body">
-    <div v-if="modal.isOpen.value" class="um-overlay" @click.self="modal.close()">
-      <div class="um-modal">
-
-        <div class="um-header">
-          <span class="um-title">Upload Document</span>
-          <button class="um-close" @click="modal.close()">✕</button>
+    <div v-if="modal.isOpen.value" class="modal-backdrop" @click.self="modal.close()">
+      <div class="modal-card um-modal">
+        <div class="modal-card-header">
+          <div class="um-header-title">
+            <svg class="ui-icon" aria-hidden="true"><use href="#ui-upload"/></svg>
+            <h3>Upload Document</h3>
+          </div>
+          <button type="button" class="btn btn-xs btn-ghost" aria-label="Close" @click="modal.close()">✕</button>
         </div>
 
         <div class="um-body">
           <!-- Mode toggle -->
-          <div class="mode-toggle">
-            <button type="button" :class="{ active: mode === 'file' }" @click="mode = 'file'">Single File</button>
-            <button type="button" :class="{ active: mode === 'folder' }" @click="mode = 'folder'">Folder</button>
+          <div class="mode-toggle" role="tablist">
+            <button type="button" :class="{ active: mode === 'file' }" @click="mode = 'file'">
+              <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-doc"/></svg>
+              Single File
+            </button>
+            <button type="button" :class="{ active: mode === 'folder' }" @click="mode = 'folder'">
+              <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-folder"/></svg>
+              Folder Batch
+            </button>
           </div>
 
           <form @submit.prevent="mode === 'file' ? upload() : uploadSelected()">
-            <!-- Single file -->
+            <!-- Single file dropzone -->
             <div v-if="mode === 'file'" class="field">
               <label>Markdown File</label>
-              <input type="file" accept=".md,.markdown" @change="onFileChange" required />
+              <div
+                class="dropzone"
+                :class="{ 'dropzone--active': isDragging, 'dropzone--picked': !!file }"
+                @dragover.prevent="isDragging = true"
+                @dragleave="isDragging = false"
+                @drop.prevent="onFileDrop"
+              >
+                <input type="file" accept=".md,.markdown" class="dropzone-input" @change="onFileChange" />
+                <svg class="ui-icon ui-icon--lg dropzone-icon" aria-hidden="true"><use href="#ui-upload"/></svg>
+                <template v-if="file">
+                  <strong class="dropzone-filename">{{ file.name }}</strong>
+                  <span class="dropzone-hint">{{ formatSize(file.size) }} · Click or drop to replace</span>
+                </template>
+                <template v-else>
+                  <strong>Drop a .md or .markdown file here</strong>
+                  <span class="dropzone-hint">or click to browse your device</span>
+                </template>
+              </div>
             </div>
 
             <!-- Folder mode -->
             <div v-if="mode === 'folder'">
               <div class="field">
-                <label>Select Folder</label>
-                <input type="file" webkitdirectory @change="onFolderChange" />
+                <label>Select Local Folder</label>
+                <div class="dropzone">
+                  <input type="file" webkitdirectory class="dropzone-input" @change="onFolderChange" />
+                  <svg class="ui-icon ui-icon--lg dropzone-icon" aria-hidden="true"><use href="#ui-folder"/></svg>
+                  <strong>{{ mdFiles.length ? `${mdFiles.length} markdown files discovered` : 'Choose a folder to scan for .md files' }}</strong>
+                  <span class="dropzone-hint">Click to pick a directory from your computer</span>
+                </div>
               </div>
               <div v-if="mdFiles.length" class="file-list">
                 <div class="file-list-header">
@@ -37,31 +67,34 @@
                 </div>
                 <div class="file-list-items">
                   <label v-for="f in mdFiles" :key="f.path" class="checkbox-label">
-                    <input type="checkbox" :value="f.path" v-model="selectedFiles" />
+                    <input v-model="selectedFiles" type="checkbox" :value="f.path" />
                     <span class="file-path">{{ f.path }}</span>
                     <span class="file-size">{{ formatSize(f.file.size) }}</span>
                   </label>
                 </div>
               </div>
-              <div v-else-if="folderPicked" class="empty-msg">No .md or .markdown files found.</div>
+              <div v-else-if="folderPicked" class="empty-msg">No .md or .markdown files found in that folder.</div>
+            </div>
+
+            <div class="field-grid">
+              <div class="field">
+                <label>Destination Folder</label>
+                <select v-model="form.folder_id" class="select-control">
+                  <option value="">Root (Unfiled)</option>
+                  <option v-for="f in flatFolders" :key="f.id" :value="f.id">
+                    {{ '\u00a0\u00a0'.repeat(f.depth) }}{{ f.name }}
+                  </option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Category</label>
+                <input v-model="form.category" class="input-control" placeholder="e.g., architecture, guide" />
+              </div>
             </div>
 
             <div class="field">
-              <label>Folder (optional)</label>
-              <select v-model="form.folder_id">
-                <option value="">Root (no folder)</option>
-                <option v-for="f in flatFolders" :key="f.id" :value="f.id">
-                  {{ '\u00a0\u00a0'.repeat(f.depth) }}{{ f.name }}
-                </option>
-              </select>
-            </div>
-            <div class="field">
-              <label>Category</label>
-              <input v-model="form.category" placeholder="e.g., tutorial, guide" />
-            </div>
-            <div class="field">
-              <label>Tags (comma separated)</label>
-              <input v-model="form.tags" placeholder="e.g., vue, javascript" />
+              <label>Tags <span class="label-hint">(comma separated)</span></label>
+              <input v-model="form.tags" class="input-control" placeholder="e.g., api, deployment, vue" />
             </div>
 
             <div v-if="error" class="error-msg">{{ error }}</div>
@@ -80,19 +113,26 @@
             </div>
 
             <div class="um-footer">
-              <button type="button" class="btn-cancel" @click="modal.close()">Cancel</button>
+              <button type="button" class="btn" @click="modal.close()">Cancel</button>
               <button
-                v-if="mode === 'file'" type="submit"
-                class="btn-submit" :disabled="uploading"
-              >{{ uploading ? 'Uploading…' : 'Upload' }}</button>
+                v-if="mode === 'file'"
+                type="submit"
+                class="btn btn-primary"
+                :disabled="uploading || !file"
+              >
+                {{ uploading ? 'Uploading…' : 'Upload Document' }}
+              </button>
               <button
-                v-else type="submit"
-                class="btn-submit" :disabled="uploading || !selectedFiles.length"
-              >{{ uploading ? 'Uploading…' : `Upload ${selectedFiles.length} file${selectedFiles.length !== 1 ? 's' : ''}` }}</button>
+                v-else
+                type="submit"
+                class="btn btn-primary"
+                :disabled="uploading || !selectedFiles.length"
+              >
+                {{ uploading ? 'Uploading…' : `Upload ${selectedFiles.length} file${selectedFiles.length !== 1 ? 's' : ''}` }}
+              </button>
             </div>
           </form>
         </div>
-
       </div>
     </div>
   </Teleport>
@@ -107,6 +147,7 @@ const panel = useFolderPanel()
 const mode = ref('file')
 const form = ref({ category: '', tags: '', folder_id: '' })
 const file = ref(null)
+const isDragging = ref(false)
 const uploading = ref(false)
 const error = ref('')
 const mdFiles = ref([])
@@ -115,12 +156,18 @@ const folderPicked = ref(false)
 const uploadProgress = ref({ done: 0, total: 0, current: '' })
 const uploadResults = ref([])
 
-// Reset state when modal opens
+// Pre-select current active folder when opening modal
 watch(() => modal.isOpen.value, (open) => {
   if (open) {
     mode.value = 'file'
-    form.value = { category: '', tags: '', folder_id: '' }
+    const activeFolder = panel.selectedFolderId.value
+    form.value = {
+      category: '',
+      tags: '',
+      folder_id: (activeFolder && activeFolder !== 'root') ? activeFolder : ''
+    }
     file.value = null
+    isDragging.value = false
     error.value = ''
     mdFiles.value = []
     selectedFiles.value = []
@@ -130,7 +177,6 @@ watch(() => modal.isOpen.value, (open) => {
   }
 })
 
-// Escape to close
 if (import.meta.client) {
   const onKey = (e) => { if (e.key === 'Escape' && modal.isOpen.value) modal.close() }
   onMounted(() => document.addEventListener('keydown', onKey))
@@ -165,7 +211,19 @@ const progressPercent = computed(() => {
   return Math.round((uploadProgress.value.done / uploadProgress.value.total) * 100)
 })
 
-function onFileChange(e) { file.value = e.target.files[0] }
+function onFileChange(e) {
+  if (e.target.files?.[0]) file.value = e.target.files[0]
+}
+function onFileDrop(e) {
+  isDragging.value = false
+  const dropped = Array.from(e.dataTransfer?.files || []).find(f => /\.(md|markdown)$/i.test(f.name))
+  if (dropped) {
+    file.value = dropped
+    error.value = ''
+  } else {
+    error.value = 'Please drop a valid .md or .markdown file.'
+  }
+}
 function onFolderChange(e) {
   folderPicked.value = true
   const files = Array.from(e.target.files)
@@ -173,7 +231,7 @@ function onFolderChange(e) {
     .filter(f => /\.(md|markdown)$/i.test(f.name))
     .map(f => ({ path: f.webkitRelativePath || f.name, file: f }))
     .sort((a, b) => a.path.localeCompare(b.path))
-  selectedFiles.value = []
+  selectedFiles.value = mdFiles.value.map(f => f.path)
   uploadResults.value = []
 }
 
@@ -225,74 +283,251 @@ async function uploadSelected() {
 </script>
 
 <style scoped>
-.um-overlay {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.6);
-  z-index: 1000;
-  display: flex; align-items: center; justify-content: center;
-  padding: 1rem;
+.um-modal {
+  width: min(580px, 100%);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
 }
 
-.um-modal {
-  background: var(--surface);
+.um-header-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.um-header-title .ui-icon {
+  color: var(--accent);
+}
+
+.um-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.mode-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
   border-radius: 10px;
-  box-shadow: 0 16px 64px rgba(0,0,0,0.45);
-  width: min(600px, 100%);
-  max-height: 90vh;
-  display: flex; flex-direction: column;
+  background: var(--raised);
+  margin-bottom: 18px;
+}
+
+.mode-toggle button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.mode-toggle button.active {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+
+.field {
+  margin-bottom: 14px;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.field label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.label-hint {
+  font-weight: 450;
+  color: var(--muted);
+}
+
+.dropzone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 24px 16px;
+  border: 1.5px dashed var(--line-strong);
+  border-radius: 12px;
+  background: var(--canvas);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.16s, background 0.16s;
+}
+
+.dropzone:hover,
+.dropzone--active {
+  border-color: var(--accent-solid);
+  background: var(--accent-soft);
+}
+
+.dropzone--picked {
+  border-style: solid;
+  border-color: var(--accent-solid);
+  background: var(--accent-soft);
+}
+
+.dropzone-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.dropzone-icon {
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+
+.dropzone strong {
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+.dropzone-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.file-list {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-bottom: 14px;
   overflow: hidden;
 }
 
-.um-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0.85rem 1.25rem;
-  background: var(--surface2);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
+.file-list-header {
+  padding: 8px 12px;
+  background: var(--raised);
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
 }
-.um-title { font-weight: 700; font-size: 1rem; color: var(--text); }
-.um-close {
-  background: none; border: none; font-size: 1.1rem; cursor: pointer;
-  color: var(--text3); padding: 0.15rem 0.35rem; border-radius: 4px; line-height: 1;
+
+.file-list-items {
+  max-height: 190px;
+  overflow-y: auto;
 }
-.um-close:hover { background: var(--hover-bg); color: var(--text); }
 
-.um-body { padding: 1.25rem; overflow-y: auto; flex: 1; }
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--ink);
+}
 
-.mode-toggle { display: flex; margin-bottom: 1.25rem; }
-.mode-toggle button { flex: 1; padding: 0.55rem 1rem; border: 1px solid var(--border2); background: var(--surface2); cursor: pointer; font-size: 0.9rem; color: var(--text); transition: all 0.15s; }
-.mode-toggle button:first-child { border-radius: 6px 0 0 6px; }
-.mode-toggle button:last-child { border-radius: 0 6px 6px 0; }
-.mode-toggle button.active { background: var(--accent); color: white; border-color: var(--accent); }
+.checkbox-label:hover {
+  background: var(--raised);
+}
 
-.field { margin-bottom: 1rem; }
-.field label { display: block; margin-bottom: 0.4rem; font-weight: 500; font-size: 0.88rem; color: var(--text); }
-.field input, .field select { width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--border2); border-radius: 4px; box-sizing: border-box; font-size: 0.92rem; background: var(--surface2); color: var(--text); }
+.file-path {
+  flex: 1;
+  word-break: break-all;
+}
 
-.file-list { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1rem; }
-.file-list-header { padding: 0.5rem 0.75rem; background: var(--surface2); border-bottom: 1px solid var(--border); font-size: 0.85rem; color: var(--text); }
-.file-list-items { max-height: 220px; overflow-y: auto; }
-.checkbox-label { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.75rem; cursor: pointer; font-size: 0.85rem; color: var(--text); }
-.checkbox-label:hover { background: var(--hover-bg); }
-.file-path { flex: 1; word-break: break-all; }
-.file-size { color: var(--text3); font-size: 0.78rem; white-space: nowrap; }
-.empty-msg { color: var(--text3); font-style: italic; margin-bottom: 1rem; font-size: 0.88rem; }
-.error-msg { color: var(--danger); margin-bottom: 1rem; font-size: 0.88rem; }
+.file-size {
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
 
-.progress-bar { position: relative; height: 26px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; margin-bottom: 1rem; overflow: hidden; }
-.progress-fill { height: 100%; background: var(--accent); transition: width 0.3s; }
-.progress-text { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 0.78rem; color: var(--text); }
+.empty-msg {
+  color: var(--muted);
+  font-size: 12.5px;
+  margin-bottom: 12px;
+}
 
-.upload-results { margin-bottom: 1rem; max-height: 160px; overflow-y: auto; font-size: 0.83rem; }
-.result-item { padding: 0.25rem 0; }
-.result-item.ok { color: var(--success); }
-.result-item.fail { color: var(--danger); }
-.result-err { opacity: 0.8; }
+.error-msg {
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
+  color: var(--danger);
+  margin-bottom: 14px;
+  font-size: 12.5px;
+}
 
-.um-footer { display: flex; gap: 0.6rem; justify-content: flex-end; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
-.btn-cancel { padding: 0.5rem 1.1rem; background: var(--surface2); border: 1px solid var(--border2); border-radius: 5px; cursor: pointer; font-size: 0.9rem; color: var(--text); }
-.btn-cancel:hover { background: var(--hover-bg); }
-.btn-submit { padding: 0.5rem 1.4rem; background: var(--accent); color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 0.9rem; }
-.btn-submit:hover { background: var(--accent-hover); }
-.btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+.progress-bar {
+  position: relative;
+  height: 28px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent-soft);
+  transition: width 0.25s;
+}
+
+.progress-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.upload-results {
+  margin-bottom: 12px;
+  max-height: 140px;
+  overflow-y: auto;
+  font-size: 12.5px;
+}
+
+.result-item {
+  padding: 3px 0;
+}
+.result-item.ok {
+  color: var(--success);
+}
+.result-item.fail {
+  color: var(--danger);
+}
+
+.um-footer {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 560px) {
+  .field-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
