@@ -205,7 +205,7 @@
     </div>
 
     <!-- ── Card Grid View ─────────────────────────────────────────────────── -->
-    <div v-if="viewMode === 'card'" class="documents documents-card">
+    <div v-if="viewMode === 'card'" key="view-card" class="documents-card">
       <article
         v-for="doc in documents"
         :key="doc.id"
@@ -298,7 +298,7 @@
     </div>
 
     <!-- ── Compact List View ──────────────────────────────────────────────── -->
-    <div v-else-if="viewMode === 'compact'" class="documents documents-compact">
+    <div v-else-if="viewMode === 'compact'" key="view-compact" class="documents-compact">
       <div
         v-for="doc in documents"
         :key="doc.id"
@@ -318,7 +318,7 @@
           <svg class="ui-icon ui-icon--sm" aria-hidden="true"><use href="#ui-doc"/></svg>
         </span>
         <div class="compact-main">
-          <a href="#" class="compact-title" @click.prevent.stop="docViewer.openDoc(doc.id)">{{ doc.title }}</a>
+          <a href="#" class="compact-title" @click.prevent.stop="docViewer.openDoc(doc.id)">{{ doc.title || '(Untitled document)' }}</a>
           <span v-if="doc.description" class="compact-desc">{{ doc.description }}</span>
         </div>
         <div class="compact-badges" @click.stop>
@@ -335,7 +335,7 @@
     </div>
 
     <!-- ── Table View ─────────────────────────────────────────────────────── -->
-    <div v-else-if="documents?.length" class="table-scroll">
+    <div v-else-if="documents?.length" key="view-table" class="table-scroll">
       <table class="data-table">
         <thead>
           <tr>
@@ -736,7 +736,13 @@ function formatDate(date) {
 }
 
 // ── View mode ────────────────────────────────────────────────────────────────
-const viewMode = ref(import.meta.client ? (localStorage.getItem('viewMode') || 'card') : 'card')
+const viewMode = ref('card')
+onMounted(() => {
+  const saved = localStorage.getItem('viewMode')
+  if (saved === 'card' || saved === 'compact' || saved === 'table') {
+    viewMode.value = saved
+  }
+})
 watch(viewMode, v => { if (import.meta.client) localStorage.setItem('viewMode', v) })
 
 // ── Folder Asset Upload ──────────────────────────────────────────────────────
@@ -1040,14 +1046,17 @@ watch(selectedFolderId, () => refreshFolderAssets(), { immediate: true })
 
 /* ── Compact List View ─────────────────────────────────────────────────── */
 .documents-compact {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+  width: 100%;
 }
 
 .compact-row {
   display: flex;
   align-items: center;
   gap: 12px;
+  width: 100%;
   padding: 12px 16px;
   background: var(--surface);
   border: 1px solid var(--line);
@@ -1078,8 +1087,9 @@ watch(selectedFolderId, () => refreshFolderAssets(), { immediate: true })
 }
 
 .compact-main {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 220px;
+  min-width: 160px;
+  overflow: hidden;
 }
 
 .compact-title {

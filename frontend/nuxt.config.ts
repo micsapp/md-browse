@@ -5,7 +5,13 @@ const appVersion = `${pkg.version}-${buildHash}`
 const appName = process.env.NUXT_PUBLIC_APP_NAME || 'MD Browse'
 
 export default defineNuxtConfig({
+  ssr: false,
   devtools: { enabled: true },
+  nitro: {
+    prerender: {
+      routes: ['/', '/200.html', '/404.html', '/login', '/upload', '/shares', '/tokens', '/admin', '/search', '/categories', '/tags']
+    }
+  },
   modules: ['@vite-pwa/nuxt'],
   app: {
     head: {
